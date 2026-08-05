@@ -9,6 +9,8 @@ Create a new zellij pane and start a fresh Claude Code session in it. The pane
 opens next to the current one, inherits the working directory, and is
 automatically named (e.g. `claude: myproject`).
 
+If the tiled layout is full, the script falls back to `--floating` automatically.
+
 `scripts/` paths are relative to this skill's directory.
 
 ## Workflow
@@ -17,12 +19,14 @@ automatically named (e.g. `claude: myproject`).
    ```bash
    bash scripts/new-pane.sh [direction] [cwd] [initial-prompt]
    ```
-   - `direction` (optional): `right` (default), `left`, `up`, `down`
+   - `direction` (optional): `right` (default), `down`. zellij only supports
+     `right`/`down`; `left`/`up` silently fall back to `right`.
    - `cwd` (optional): working directory (defaults to current pane's cwd)
    - `initial-prompt` (optional): task to send to the new Claude session
 
-   The script creates the pane, waits for the shell, types `claude` + Enter,
-   names the pane, and outputs the new pane ID.
+   The script tries tiled first, verifies the pane rendered, and falls back
+   to `--floating` if the pane turns out to be a ghost (layout full). Outputs
+   the new pane ID (e.g. `terminal_42`).
 
 2. **Confirm** the new pane is running. Optionally verify:
    ```bash
@@ -40,21 +44,25 @@ bash scripts/new-pane.sh right /home/god/myproject "Review the auth module for s
 
 Or via env:
 ```bash
-CLAUDE_INITIAL_PROMPT="Review the auth module" bash scripts/new-pane.sh
+ZCP_INITIAL_PROMPT="Review the auth module" bash scripts/new-pane.sh
 ```
 
-The prompt is written to a temp file and relayed via `write-chars`, so
-backticks, `$`, quotes, and newlines all survive intact.
+**Long prompts (>2KB):** the script writes the prompt to
+`/tmp/zellij-claude-init-<pane-id>.md` and sends a short pointer instead,
+avoiding `write-chars` truncation. If the prompt is short, it's relayed
+directly via `write-chars` with special characters preserved.
 
 If you need reliable prompt delivery to an **existing** pane, use
 `zellij-relay-prompt` instead — it's built for that.
 
-## Custom Claude command
+## Configuration
 
-If the binary has a different name:
-```bash
-CLAUDE_CMD="claude-code" bash scripts/new-pane.sh
-```
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `ZCP_CLAUDE_CMD` | `claude` | Binary name for Claude Code |
+| `ZCP_CLAUDE_ENV` | — | Extra env vars prepended to the command (e.g. `ANTHROPIC_MODEL=sonnet`) |
+| `ZCP_INITIAL_PROMPT` | — | Fallback if no 3rd arg given |
+| `ZCP_FLOATING` | `0` | Set to `1` to skip tiled attempt entirely |
 
 ## Choosing between this skill and zellij-relay-prompt
 
