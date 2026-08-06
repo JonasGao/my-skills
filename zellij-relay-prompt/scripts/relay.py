@@ -22,7 +22,11 @@ import json
 
 def pane_exists(pane):
     """Best-effort check that the pane id is currently live. Never blocks on a
-    zellij failure (returns True so the caller can proceed and let zellij error)."""
+    zellij failure (returns True so the caller can proceed and let zellij error).
+
+    Accepts both numeric ids (354) and string ids (terminal_354, plugin_42) since
+    zellij list-panes --json returns numeric ids, but new-pane and ZELLIJ_PANE_ID
+    use the string format."""
     r = subprocess.run(["zellij", "action", "list-panes", "--json"],
                        capture_output=True, text=True)
     if r.returncode != 0:
@@ -31,8 +35,14 @@ def pane_exists(pane):
         ids = {p.get("id") for p in json.loads(r.stdout)}
     except (json.JSONDecodeError, TypeError):
         return True
+    # Normalize: strip terminal_ / plugin_ prefix, then try as int.
+    pane_str = str(pane)
+    for prefix in ("terminal_", "plugin_"):
+        if pane_str.startswith(prefix):
+            pane_str = pane_str[len(prefix):]
+            break
     try:
-        return int(pane) in ids
+        return int(pane_str) in ids
     except ValueError:
         return pane in ids
 

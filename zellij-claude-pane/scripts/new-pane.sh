@@ -62,20 +62,25 @@ pane_is_alive() {
 }
 
 # Poll dump-screen until Claude Code's "❯" prompt appears (ready for input).
-# Returns 0 when ready, 1 on timeout.
+# Returns 0 when ready, 1 on timeout, 2 if the pane shows "command not found"
+# (claude binary missing — the prompt must NOT be sent, or it executes as shell).
 wait_for_claude_ready() {
     local id="$1"
-    local timeout="${2:-30}"
+    local timeout_sec="${2:-30}"
     local tmpfile="/tmp/zellij-claude-ready-${id}.txt"
     local elapsed=0
-    while [ "$elapsed" -lt "$timeout" ]; do
+    while [ "$elapsed" -lt "$timeout_sec" ]; do
         rm -f "$tmpfile"
         zellij action dump-screen --pane-id "$id" --path "$tmpfile" 2>/dev/null || true
+        if grep -qi 'command not found\|not found\|no such file' "$tmpfile" 2>/dev/null; then
+            rm -f "$tmpfile"
+            return 2
+        fi
         if grep -q '❯' "$tmpfile" 2>/dev/null; then
             rm -f "$tmpfile"
             return 0
         fi
-        sleep 0.5
+        sleep 1
         elapsed=$((elapsed + 1))
     done
     rm -f "$tmpfile"
@@ -123,11 +128,23 @@ echo "$new_id"
 
 if [ -n "$INITIAL_PROMPT" ]; then
     # Wait for Claude Code to finish loading (poll dump-screen for ❯ prompt).
-    if wait_for_claude_ready "$new_id"; then
-        echo "Claude Code ready in pane $new_id."
-    else
-        echo "Warning: Claude Code did not show ❯ prompt within 30s, sending anyway..." >&2
-    fi
+    ready_rc=0
+    wait_for_claude_ready "$new_id" || ready_rc=$?
+
+    case "$ready_rc" in
+        0)
+            echo "Claude Code ready in pane $new_id."
+            ;;
+        2)
+            echo "Error: Claude command '$FULL_CMD' not found in pane $new_id." >&2
+            echo "The prompt was NOT sent — it would be executed as shell commands." >&2
+            echo "Install Claude Code in the new pane or set ZCP_CLAUDE_CMD." >&2
+            exit 1
+            ;;
+        *)
+            echo "Warning: Claude Code did not show ❯ prompt within 30s, sending anyway..." >&2
+            ;;
+    esac
 
     prompt_file="/tmp/zellij-claude-init-${new_id}.md"
     prompt_len=$(printf '%s' "$INITIAL_PROMPT" | wc -c)

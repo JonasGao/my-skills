@@ -18,6 +18,6 @@ zellij action list-panes --json 2>/dev/null | jq -r --arg self "$self" --arg re 
     .[]
     | select(.is_plugin == false)
     | select((.pane_command // "") | test($re))
-    | select(.id != ($self | tonumber? // -1))
+    | select(.id != ($self | sub("^(terminal_|plugin_)"; "") | tonumber? // -1))
     | "\(.id)\t\(.title)\t\(.pane_cwd // "-")"
 ' 2>/dev/null

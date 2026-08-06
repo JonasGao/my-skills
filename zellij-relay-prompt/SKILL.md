@@ -47,7 +47,7 @@ To have the target signal when done, append this to the staged prompt - it types
 message back into your pane as a new input line so you can pick up the result:
 
 ```
-完成后运行: bash <abs-path-to-this-skill>/scripts/notify-complete.sh $ZELLIJ_PANE_ID "done: <summary>"
+完成后运行: bash <abs-path-to-this-skill>/scripts/notify-complete.sh <your-pane-id> "done: <summary>"
 ```
 
 Use the absolute script path (the target may lack this skill). Best-effort: the
