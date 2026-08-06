@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Relay the staged prompt to a zellij pane running a coding agent.
 
-Usage: relay.py <pane-id> [prompt-file] [--force]
+Usage: relay.py <pane-id> [prompt-file]
 
 Reads the staged prompt, clears the target's input line, types it verbatim,
 and submits it. Exits non-zero on failure.
@@ -13,24 +13,12 @@ other. Pass an explicit path to override.
 write-chars is used (not write) because it simulates typing and lands in the
 coding agent's TUI input box; raw `write` bytes do not. Reading from a file
 means backticks, $, quotes, and newlines all survive without shell escaping.
-
-Use --force to relay to a non-agent pane (e.g., a plain shell). Without it,
-the target's pane_command is checked against a known agent list and relaying
-to a non-agent pane is refused — to avoid executing prompt text as shell
-commands.
 """
 import subprocess
 import sys
 import time
 import json
 import os
-import re
-
-# Regex of known coding agent commands (same default as find-pane.sh).
-AGENT_RE = re.compile(
-    os.environ.get("CODE_AGENT_RE", r"claude|codex|opencode|aider|gemini"),
-    re.IGNORECASE,
-)
 
 # write-chars may truncate beyond ~2KB. Above this threshold, write the
 # prompt to a temp file and send a short pointer instead.
@@ -74,38 +62,6 @@ def pane_exists(pane):
     return numeric_id in {p.get("id") for p in panes}
 
 
-def get_pane_info(pane):
-    """Return the pane's metadata dict from list-panes, or None."""
-    try:
-        r = subprocess.run(
-            ["zellij", "action", "list-panes", "--json"],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (FileNotFoundError, OSError):
-        return None
-    if r.returncode != 0:
-        return None
-    try:
-        panes = json.loads(r.stdout)
-    except (json.JSONDecodeError, TypeError):
-        return None
-
-    numeric_id = normalize_pane_id(pane)
-    for p in panes:
-        if p.get("id") == numeric_id:
-            return p
-    return None
-
-
-def is_agent_pane(pane):
-    """Check whether the pane is running a known coding agent."""
-    info = get_pane_info(pane)
-    if info is None:
-        return False
-    pane_cmd = info.get("pane_command") or ""
-    return bool(AGENT_RE.search(pane_cmd))
-
-
 def make_sender(pane):
     """Return a function that runs a zellij action against `pane`."""
     def send(action, *extra):
@@ -124,15 +80,12 @@ def make_sender(pane):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--force"]
-    force = "--force" in sys.argv
-
-    if len(args) < 1:
-        print("Usage: relay.py <pane-id> [prompt-file] [--force]", file=sys.stderr)
+    if len(sys.argv) < 2:
+        print("Usage: relay.py <pane-id> [prompt-file]", file=sys.stderr)
         sys.exit(2)
 
-    pane = args[0]
-    prompt_file = args[1] if len(args) > 1 else f"/tmp/zellij-relay-prompt-{pane}.md"
+    pane = sys.argv[1]
+    prompt_file = sys.argv[2] if len(sys.argv) > 2 else f"/tmp/zellij-relay-prompt-{pane}.md"
     send = make_sender(pane)
 
     # Read the staged prompt.
@@ -151,16 +104,6 @@ def main():
         print(
             f"Error: pane {pane} not found. "
             "Re-run scripts/find-pane.sh for a current id.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    # Guard 2: target is a coding agent (unless --force).
-    if not force and not is_agent_pane(pane):
-        print(
-            f"Error: pane {pane} does not appear to be a coding agent. "
-            "Relaying a prompt to a plain shell would execute it as shell commands. "
-            "Use --force to override.",
             file=sys.stderr,
         )
         sys.exit(1)
