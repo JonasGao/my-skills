@@ -55,23 +55,24 @@ directly via `write-chars` with special characters preserved.
 If you need reliable prompt delivery to an **existing** pane, use
 `zellij-relay-prompt` instead — it's built for that.
 
-## Follow-up interaction (relay prompts to the new pane)
+## Follow-up interaction
 
-After creating a pane, ongoing communication uses `zellij-relay-prompt`:
+After creating a pane, use `zellij-relay-prompt` for communication — **do not
+poll the new pane's screen** (`dump-screen`) to check progress.
 
-- **Send more prompts** — use `scripts/find-pane.sh` + `scripts/relay.py` from
-  `zellij-relay-prompt` to relay follow-up tasks.
-- **Get notified when done** — append this to any relayed prompt so the
-  target pane signals back when finished:
+- **Default**: append a completion-notification snippet to the relayed prompt
+  so the worker pane signals back when done. Wait for that notification, then
+  continue.
 
   ```
   完成后运行: bash <abs-path-to-zellij-relay-prompt>/scripts/notify-complete.sh <your-pane-id> "done: <summary>"
   ```
 
-  This types a `✓` message into your pane. Best-effort — if silent, check the
-  target with `dump-screen`.
+- **If the user says "don't wait"** or "fire and forget": skip the
+  notification snippet. The worker runs independently; the user will
+  interact with it directly.
 
-See `zellij-relay-prompt` SKILL.md for full relay workflow.
+See `zellij-relay-prompt` SKILL.md for the full relay + notify workflow.
 
 ## Configuration
 
