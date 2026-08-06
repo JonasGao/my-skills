@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Create a new zellij pane and start Claude Code in it.
 # Usage: new-pane.sh [direction] [cwd] [initial-prompt]
-#   direction:      left | right | up | down (default: right; only right/down
-#                   are supported by zellij; others fall back to right)
+#   direction:      right | down | left | up (default: right; left/up
+#                   fall back to right — zellij only supports right/down)
 #   cwd:            working directory (default: current pane's cwd)
 #   initial-prompt: optional task to send to the new Claude session (best-effort)
 # Outputs the new pane ID (e.g. terminal_42) on success.
@@ -14,6 +14,8 @@
 #   ZCP_INITIAL_PROMPT fallback initial prompt if not given as 3rd arg
 #   ZCP_FLOATING       set to 1 to skip tiled attempt (use when layout
 #                      is full and tiled panes turn into ghosts)
+#   ZCP_READY_MARK     prompt glyph to poll for (default: ❯)
+#   ZCP_READY_TIMEOUT  max seconds to wait for Claude startup (default: 30)
 
 set -euo pipefail
 
@@ -23,6 +25,9 @@ INITIAL_PROMPT="${3:-${ZCP_INITIAL_PROMPT:-}}"
 CLAUDE_CMD="${ZCP_CLAUDE_CMD:-claude}"
 CLAUDE_ENV="${ZCP_CLAUDE_ENV:-}"
 FLOATING="${ZCP_FLOATING:-0}"
+READY_MARK="${ZCP_READY_MARK:-❯}"
+READY_TIMEOUT="${ZCP_READY_TIMEOUT:-30}"
+SCRIPT_PID="$$"
 
 # ── preflight ──────────────────────────────────────────────────────────
 
@@ -31,13 +36,26 @@ if ! zellij action list-panes --json &>/dev/null; then
     exit 1
 fi
 
-# Normalize direction: zellij only supports right/down.
+# Validate direction.
 case "$DIRECTION" in
-    left|up) DIRECTION="right" ;;
+    right|down) ;;
+    left|up)    DIRECTION="right" ;;
+    *)          echo "Error: invalid direction '$1' — use right, down, left, or up" >&2; exit 1 ;;
 esac
 
-CWD_ABS="$(cd "$CWD" 2>/dev/null && pwd || echo "$CWD")"
-PANE_LABEL="claude: $(basename "$CWD_ABS")"
+# Resolve and validate working directory.
+if [ ! -d "$CWD" ]; then
+    echo "Error: directory '$CWD' does not exist" >&2
+    exit 1
+fi
+CWD_ABS="$(cd "$CWD" 2>/dev/null && pwd)" || { echo "Error: cannot access '$CWD'" >&2; exit 1; }
+
+# Build pane label (handle / and trailing-slash edge cases).
+dir_basename="$(basename "$CWD_ABS")"
+if [ -z "$dir_basename" ] || [ "$CWD_ABS" = "/" ]; then
+    dir_basename="root"
+fi
+PANE_LABEL="claude: ${dir_basename}"
 
 # Build the full command line to type into the new pane.
 if [ -n "$CLAUDE_ENV" ]; then
@@ -46,28 +64,53 @@ else
     FULL_CMD="$CLAUDE_CMD"
 fi
 
+if [ -n "$INITIAL_PROMPT" ] && ! command -v python3 &>/dev/null; then
+    echo "Error: python3 is required to relay the initial prompt" >&2
+    exit 1
+fi
+
 # ── helpers ────────────────────────────────────────────────────────────
+
+# Validate and normalize a pane ID from zellij's stdout.
+# Accepts: terminal_42, plugin_7. Rejects: mixed stderr, empty, junk.
+normalize_pane_id() {
+    local raw="$1"
+    local id
+    # Extract the last line that looks like a valid pane ID.
+    id=$(echo "$raw" | grep -oE '\b(terminal|plugin)_[0-9]+\b' | tail -1)
+    if [ -z "$id" ]; then
+        # Fallback: try the last non-empty line as a numeric id.
+        id=$(echo "$raw" | grep -oE '\b[0-9]+\b' | tail -1)
+        [ -n "$id" ] && echo "$id" || return 1
+    fi
+    echo "$id"
+}
 
 pane_is_alive() {
     local id="$1"
-    local tmpfile="/tmp/zellij-pane-verify-${id}.txt"
+    local attempts="${2:-3}"
+    local tmpfile="/tmp/zellij-pane-verify-${id}-${SCRIPT_PID}.txt"
+    local i=0 size=0
+    while [ "$i" -lt "$attempts" ]; do
+        rm -f "$tmpfile"
+        if zellij action dump-screen --pane-id "$id" --path "$tmpfile" 2>/dev/null; then
+            size=$(wc -c < "$tmpfile" 2>/dev/null || echo 0)
+            if [ "$size" -gt 10 ]; then
+                rm -f "$tmpfile"
+                return 0
+            fi
+        fi
+        sleep 0.3
+        i=$((i + 1))
+    done
     rm -f "$tmpfile"
-    zellij action dump-screen --pane-id "$id" --path "$tmpfile" 2>/dev/null || return 1
-    # A ghost pane has empty or near-empty screen (just "$" or whitespace).
-    # A real pane has a shell prompt or running program with visible content.
-    local size
-    size=$(wc -c < "$tmpfile" 2>/dev/null || echo 0)
-    rm -f "$tmpfile"
-    [ "$size" -gt 10 ]   # more than a bare "$" prompt
+    return 1
 }
 
-# Poll dump-screen until Claude Code's "❯" prompt appears (ready for input).
-# Returns 0 when ready, 1 on timeout, 2 if the pane shows "command not found"
-# (claude binary missing — the prompt must NOT be sent, or it executes as shell).
 wait_for_claude_ready() {
     local id="$1"
-    local timeout_sec="${2:-30}"
-    local tmpfile="/tmp/zellij-claude-ready-${id}.txt"
+    local timeout_sec="${2:-$READY_TIMEOUT}"
+    local tmpfile="/tmp/zellij-claude-ready-${id}-${SCRIPT_PID}.txt"
     local elapsed=0
     while [ "$elapsed" -lt "$timeout_sec" ]; do
         rm -f "$tmpfile"
@@ -76,7 +119,7 @@ wait_for_claude_ready() {
             rm -f "$tmpfile"
             return 2
         fi
-        if grep -q '❯' "$tmpfile" 2>/dev/null; then
+        if grep -qF "$READY_MARK" "$tmpfile" 2>/dev/null; then
             rm -f "$tmpfile"
             return 0
         fi
@@ -90,25 +133,32 @@ wait_for_claude_ready() {
 # ── create the pane (tiled first, floating fallback) ───────────────────
 
 new_id=""
+tiled_id=""
 
 if [ "$FLOATING" != "1" ]; then
-    # Attempt 1: tiled pane.
-    new_id=$(zellij action new-pane --direction "$DIRECTION" --cwd "$CWD" 2>&1)
+    # Attempt 1: tiled pane. Capture stdout only; stderr goes to terminal.
+    raw=$(zellij action new-pane --direction "$DIRECTION" --cwd "$CWD_ABS" 2>/dev/null) || true
+    tiled_id=$(normalize_pane_id "$raw")
     sleep 0.8
 
-    if ! pane_is_alive "$new_id"; then
-        echo "Warning: tiled pane $new_id is a ghost (layout may be full), retrying with --floating..." >&2
-        new_id=""
+    if [ -n "$tiled_id" ] && pane_is_alive "$tiled_id"; then
+        new_id="$tiled_id"
+    else
+        echo "Warning: tiled pane ${tiled_id:-<none>} is a ghost (layout may be full), retrying with --floating..." >&2
+        # Close the ghost pane so it doesn't linger.
+        if [ -n "$tiled_id" ]; then
+            zellij action close-pane --pane-id "$tiled_id" 2>/dev/null || true
+        fi
     fi
 fi
 
 if [ -z "$new_id" ]; then
-    # Attempt 2: floating pane (always works regardless of layout).
-    new_id=$(zellij action new-pane --floating --cwd "$CWD" 2>&1)
-    sleep 0.8
+    # Attempt 2: floating pane.
+    raw=$(zellij action new-pane --floating --cwd "$CWD_ABS" 2>/dev/null) || true
+    new_id=$(normalize_pane_id "$raw")
 
-    if ! pane_is_alive "$new_id"; then
-        echo "Error: floating pane $new_id is also unreachable" >&2
+    if [ -z "$new_id" ] || ! pane_is_alive "$new_id"; then
+        echo "Error: floating pane ${new_id:-<none>} is also unreachable" >&2
         exit 1
     fi
 fi
@@ -127,7 +177,6 @@ echo "$new_id"
 # ── optional initial prompt (best-effort) ──────────────────────────────
 
 if [ -n "$INITIAL_PROMPT" ]; then
-    # Wait for Claude Code to finish loading (poll dump-screen for ❯ prompt).
     ready_rc=0
     wait_for_claude_ready "$new_id" || ready_rc=$?
 
@@ -142,11 +191,11 @@ if [ -n "$INITIAL_PROMPT" ]; then
             exit 1
             ;;
         *)
-            echo "Warning: Claude Code did not show ❯ prompt within 30s, sending anyway..." >&2
+            echo "Warning: Claude Code did not show prompt within ${READY_TIMEOUT}s, sending anyway..." >&2
             ;;
     esac
 
-    prompt_file="/tmp/zellij-claude-init-${new_id}.md"
+    prompt_file="/tmp/zellij-claude-init-${new_id}-${SCRIPT_PID}.md"
     prompt_len=$(printf '%s' "$INITIAL_PROMPT" | wc -c)
 
     if [ "$prompt_len" -gt 2000 ]; then
@@ -159,16 +208,19 @@ pane = sys.argv[1]
 content = sys.argv[2]
 subprocess.run(["zellij", "action", "send-keys", "--pane-id", pane, "Ctrl u"])
 time.sleep(0.1)
-subprocess.run(["zellij", "action", "write-chars", "--pane-id", pane, content])
+r = subprocess.run(["zellij", "action", "write-chars", "--pane-id", pane, content])
+if r.returncode != 0:
+    sys.exit(r.returncode)
 time.sleep(0.3)
 subprocess.run(["zellij", "action", "send-keys", "--pane-id", pane, "Enter"])
 PYEOF
+        py_rc=$?
         echo "Sent pointer to $prompt_file (prompt was ${prompt_len} chars)."
     else
         # Short prompt: relay directly via write-chars.
         printf '%s' "$INITIAL_PROMPT" > "$prompt_file"
         python3 - "$new_id" "$prompt_file" <<'PYEOF'
-import subprocess, sys, time
+import subprocess, sys, time, os
 pane = sys.argv[1]
 path = sys.argv[2]
 with open(path, "r") as f:
@@ -177,11 +229,18 @@ if not content.strip():
     sys.exit(0)
 subprocess.run(["zellij", "action", "send-keys", "--pane-id", pane, "Ctrl u"])
 time.sleep(0.1)
-subprocess.run(["zellij", "action", "write-chars", "--pane-id", pane, content])
+r = subprocess.run(["zellij", "action", "write-chars", "--pane-id", pane, content])
+if r.returncode != 0:
+    sys.exit(r.returncode)
 time.sleep(0.3)
 subprocess.run(["zellij", "action", "send-keys", "--pane-id", pane, "Enter"])
 PYEOF
+        py_rc=$?
         rm -f "$prompt_file"
-        echo "Sent initial prompt to pane $new_id (best-effort)."
+        if [ "$py_rc" -ne 0 ]; then
+            echo "Warning: python relay exited with code $py_rc (prompt may not have been sent)" >&2
+        else
+            echo "Sent initial prompt to pane $new_id (best-effort)."
+        fi
     fi
 fi

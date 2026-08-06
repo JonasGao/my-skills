@@ -1,6 +1,14 @@
 # Zellij command reference (for relaying prompts)
 
 Loaded on demand when you need the raw command semantics behind the relay.
+For pane-creation commands (new-pane, rename, close), see
+`zellij-claude-pane/zellij-io.md`.
+
+## Pane ID formats
+
+Zellij accepts both numeric (`42`) and string (`terminal_42`, `plugin_7`) ids
+interchangeably. `list-panes --json` returns numeric ids; `new-pane` outputs
+the string format. Scripts in both skills normalize both.
 
 ## List panes
 

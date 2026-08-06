@@ -1,6 +1,6 @@
 ---
 name: zellij-relay-prompt
-description: "Relay a prompt to another zellij pane running a coding agent (Claude Code, Codex, OpenCode, Aider, etc.), so that separate agent instance executes it. Use whenever the user wants to delegate or hand off a task to another coding-agent session in a different zellij pane - e.g. 'send this to the other pane', 'relay this prompt', 'ask the other agent to ...', 'delegate to pane X', 'run this in the retail-platform pane', or when coordinating work across multiple parallel agent sessions. Also use when the user refers to a zellij pane by id/title or wants one agent to drive another."
+description: "Relay a prompt to another zellij pane running a coding agent (Claude Code, Codex, OpenCode, Aider, etc.), so that separate agent instance executes it. Use whenever the user wants to delegate or hand off a task to another coding-agent session in a different zellij pane - e.g. 'send this to the other pane', 'relay this prompt', 'ask the other agent to ...', 'delegate to pane X', 'run this in the retail-platform pane', or when coordinating work across multiple parallel agent sessions. Also use when the user refers to a zellij pane by id/title or wants one agent to drive another. Do NOT use to CREATE a new pane — that is zellij-claude-pane."
 ---
 
 # Relay a prompt through zellij
@@ -13,6 +13,12 @@ The relayed prompt is real - the target agent runs it. Only relay tasks you want
 executed.
 
 `scripts/` paths are relative to this skill's directory.
+
+## If no agent pane exists yet
+
+Use `zellij-claude-pane` to create one, then relay to it:
+1. `bash <abs-path-to-zellij-claude-pane>/scripts/new-pane.sh` — creates pane, starts Claude.
+2. The new pane ID is printed; use it as the target for this skill's relay workflow.
 
 ## Workflow
 
@@ -57,6 +63,8 @@ target may be busy or decline; if silent, check it with `dump-screen`.
 
 - No panes found / stale ID -> re-run `find-pane.sh` (IDs change when panes reopen).
 - Target was busy -> wait, then re-run `relay.py`.
+- Long prompts (>2KB) are automatically written to a temp file with a short pointer
+  sent instead — relay.py will warn when this happens.
 - Truncated long prompt -> split it, or hand off via a file the target reads.
 - Agent not matched -> set `CODE_AGENT_RE` to include its command name.
 
