@@ -55,6 +55,24 @@ directly via `write-chars` with special characters preserved.
 If you need reliable prompt delivery to an **existing** pane, use
 `zellij-relay-prompt` instead — it's built for that.
 
+## Follow-up interaction (relay prompts to the new pane)
+
+After creating a pane, ongoing communication uses `zellij-relay-prompt`:
+
+- **Send more prompts** — use `scripts/find-pane.sh` + `scripts/relay.py` from
+  `zellij-relay-prompt` to relay follow-up tasks.
+- **Get notified when done** — append this to any relayed prompt so the
+  target pane signals back when finished:
+
+  ```
+  完成后运行: bash <abs-path-to-zellij-relay-prompt>/scripts/notify-complete.sh <your-pane-id> "done: <summary>"
+  ```
+
+  This types a `✓` message into your pane. Best-effort — if silent, check the
+  target with `dump-screen`.
+
+See `zellij-relay-prompt` SKILL.md for full relay workflow.
+
 ## Configuration
 
 | Env var | Default | Purpose |
@@ -70,7 +88,7 @@ If you need reliable prompt delivery to an **existing** pane, use
 |-----------|-----|
 | Need a brand-new Claude session in its own pane | `zellij-claude-pane` |
 | Want to hand off a task to an **existing** agent pane | `zellij-relay-prompt` |
-| Not sure if a pane exists yet | `zellij-claude-pane` (create one), then relay |
+| Create a new pane, then send follow-up tasks to it | `zellij-claude-pane` (create), then `zellij-relay-prompt` (interact) |
 
 ## Scripts
 
