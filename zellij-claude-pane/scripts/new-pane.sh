@@ -46,7 +46,7 @@ else
     FULL_CMD="$CLAUDE_CMD"
 fi
 
-# ── helper: verify a pane actually renders (not a ghost) ───────────────
+# ── helpers ────────────────────────────────────────────────────────────
 
 pane_is_alive() {
     local id="$1"
@@ -59,6 +59,27 @@ pane_is_alive() {
     size=$(wc -c < "$tmpfile" 2>/dev/null || echo 0)
     rm -f "$tmpfile"
     [ "$size" -gt 10 ]   # more than a bare "$" prompt
+}
+
+# Poll dump-screen until Claude Code's "❯" prompt appears (ready for input).
+# Returns 0 when ready, 1 on timeout.
+wait_for_claude_ready() {
+    local id="$1"
+    local timeout="${2:-30}"
+    local tmpfile="/tmp/zellij-claude-ready-${id}.txt"
+    local elapsed=0
+    while [ "$elapsed" -lt "$timeout" ]; do
+        rm -f "$tmpfile"
+        zellij action dump-screen --pane-id "$id" --path "$tmpfile" 2>/dev/null || true
+        if grep -q '❯' "$tmpfile" 2>/dev/null; then
+            rm -f "$tmpfile"
+            return 0
+        fi
+        sleep 0.5
+        elapsed=$((elapsed + 1))
+    done
+    rm -f "$tmpfile"
+    return 1
 }
 
 # ── create the pane (tiled first, floating fallback) ───────────────────
@@ -101,8 +122,12 @@ echo "$new_id"
 # ── optional initial prompt (best-effort) ──────────────────────────────
 
 if [ -n "$INITIAL_PROMPT" ]; then
-    # Wait for Claude Code to finish loading.
-    sleep 5
+    # Wait for Claude Code to finish loading (poll dump-screen for ❯ prompt).
+    if wait_for_claude_ready "$new_id"; then
+        echo "Claude Code ready in pane $new_id."
+    else
+        echo "Warning: Claude Code did not show ❯ prompt within 30s, sending anyway..." >&2
+    fi
 
     prompt_file="/tmp/zellij-claude-init-${new_id}.md"
     prompt_len=$(printf '%s' "$INITIAL_PROMPT" | wc -c)
