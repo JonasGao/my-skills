@@ -1,20 +1,28 @@
 #!/bin/bash
 # Send a completion notification to another zellij pane.
-# Usage: notify-complete.sh <target-pane-id> <message>
+# Usage: notify-complete.sh [--force] <target-pane-id> <message>
 # Example: notify-complete.sh terminal_329 "done: echo 命令执行成功"
+#
+# --force bypasses the self-loop guard (allow notifying your own pane).
 #
 # Best-effort: verifies the target pane exists before sending. If the target
 # is stale or unreachable, exits non-zero with a message to stderr.
 
+FORCE=false
+if [ "$1" = "--force" ]; then
+    FORCE=true
+    shift
+fi
+
 if [ $# -lt 2 ]; then
-    echo "Usage: $0 <target-pane-id> <message>" >&2
+    echo "Usage: $0 [--force] <target-pane-id> <message>" >&2
     exit 1
 fi
 
 TARGET_PANE="$1"
 MESSAGE="$2"
 
-# Guard: refuse to notify ourselves (self-loop).
+# Guard: refuse to notify ourselves (self-loop), unless --force.
 my_id="${ZELLIJ_PANE_ID:-}"
 my_id_numeric=""
 # Normalize our own id for comparison.
@@ -35,11 +43,16 @@ for prefix in "terminal_" "plugin_"; do
 done
 
 if [ "$target_normalized" = "$my_id_numeric" ] && [ -n "$my_id_numeric" ]; then
-    echo "notify-complete.sh: Error: refusing to notify own pane ($TARGET_PANE)." >&2
-    echo "  The prompt likely contained \$ZELLIJ_PANE_ID literally — it expanded" >&2
-    echo "  here to this pane's ID. The sender should substitute their own pane" >&2
-    echo "  ID at staging time (run 'echo \$ZELLIJ_PANE_ID' in the origin pane)." >&2
-    exit 1
+    if [ "$FORCE" = true ]; then
+        echo "notify-complete.sh: Warning: notifying own pane ($TARGET_PANE) — forced." >&2
+    else
+        echo "notify-complete.sh: Error: refusing to notify own pane ($TARGET_PANE)." >&2
+        echo "  The prompt likely contained \$ZELLIJ_PANE_ID literally — it expanded" >&2
+        echo "  here to this pane's ID. The sender should substitute their own pane" >&2
+        echo "  ID at staging time (run 'echo \$ZELLIJ_PANE_ID' in the origin pane)." >&2
+        echo "  Use --force to send anyway." >&2
+        exit 1
+    fi
 fi
 
 # Check zellij is reachable.
