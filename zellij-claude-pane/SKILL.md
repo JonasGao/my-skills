@@ -75,6 +75,11 @@ See `zellij-relay-prompt` SKILL.md for full relay workflow.
 
 ## Configuration
 
+**Claude command priority** (highest to lowest):
+1. User's request (e.g. "use `claude --dangerously-skip-permissions`") — pass via `ZCP_CLAUDE_CMD`
+2. `ZCP_CLAUDE_CMD` env var
+3. Default: `claude`
+
 | Env var | Default | Purpose |
 |---------|---------|---------|
 | `ZCP_CLAUDE_CMD` | `claude` | Binary name for Claude Code |

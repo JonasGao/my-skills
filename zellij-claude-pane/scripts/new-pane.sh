@@ -136,8 +136,8 @@ new_id=""
 tiled_id=""
 
 if [ "$FLOATING" != "1" ]; then
-    # Attempt 1: tiled pane. Capture stdout only; stderr goes to terminal.
-    raw=$(zellij action new-pane --direction "$DIRECTION" --cwd "$CWD_ABS" 2>/dev/null) || true
+    # Attempt 1: tiled pane, starting Claude directly.
+    raw=$(zellij action new-pane --direction "$DIRECTION" --cwd "$CWD_ABS" -- $FULL_CMD 2>/dev/null) || true
     tiled_id=$(normalize_pane_id "$raw")
     sleep 0.8
 
@@ -153,8 +153,8 @@ if [ "$FLOATING" != "1" ]; then
 fi
 
 if [ -z "$new_id" ]; then
-    # Attempt 2: floating pane.
-    raw=$(zellij action new-pane --floating --cwd "$CWD_ABS" 2>/dev/null) || true
+    # Attempt 2: floating pane, starting Claude directly.
+    raw=$(zellij action new-pane --floating --cwd "$CWD_ABS" -- $FULL_CMD 2>/dev/null) || true
     new_id=$(normalize_pane_id "$raw")
 
     if [ -z "$new_id" ] || ! pane_is_alive "$new_id"; then
@@ -163,11 +163,7 @@ if [ -z "$new_id" ]; then
     fi
 fi
 
-# ── start Claude Code ──────────────────────────────────────────────────
-
-zellij action write-chars --pane-id "$new_id" "$FULL_CMD"
-sleep 0.2
-zellij action send-keys --pane-id "$new_id" "Enter"
+# ── name the pane ──────────────────────────────────────────────────────
 
 # Name the pane (zellij-level, does not interfere with the TUI).
 zellij action rename-pane --pane-id "$new_id" "$PANE_LABEL"
