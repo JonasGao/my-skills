@@ -35,7 +35,10 @@ for prefix in "terminal_" "plugin_"; do
 done
 
 if [ "$target_normalized" = "$my_id_numeric" ] && [ -n "$my_id_numeric" ]; then
-    echo "notify-complete.sh: Error: refusing to notify own pane ($TARGET_PANE)" >&2
+    echo "notify-complete.sh: Error: refusing to notify own pane ($TARGET_PANE)." >&2
+    echo "  The prompt likely contained \$ZELLIJ_PANE_ID literally — it expanded" >&2
+    echo "  here to this pane's ID. The sender should substitute their own pane" >&2
+    echo "  ID at staging time (run 'echo \$ZELLIJ_PANE_ID' in the origin pane)." >&2
     exit 1
 fi
 
