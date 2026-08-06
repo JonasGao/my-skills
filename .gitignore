@@ -1,2 +1,5 @@
 .remember/
 *-workspace/
+__pycache__/
+*.pyc
+*.pyo
