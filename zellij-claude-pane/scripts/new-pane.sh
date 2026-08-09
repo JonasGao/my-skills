@@ -19,57 +19,26 @@
 
 set -euo pipefail
 
-DIRECTION="${1:-right}"
-CWD="${2:-$(pwd)}"
-INITIAL_PROMPT="${3:-${ZCP_INITIAL_PROMPT:-}}"
-CLAUDE_CMD="${ZCP_CLAUDE_CMD:-claude}"
-CLAUDE_ENV="${ZCP_CLAUDE_ENV:-}"
-FLOATING="${ZCP_FLOATING:-0}"
-READY_MARK="${ZCP_READY_MARK:-❯}"
-READY_TIMEOUT="${ZCP_READY_TIMEOUT:-30}"
-SCRIPT_PID="$$"
-
-# ── preflight ──────────────────────────────────────────────────────────
-
-if ! zellij action list-panes --json &>/dev/null; then
-    echo "Error: not in a zellij session" >&2
-    exit 1
-fi
-
-# Validate direction.
-case "$DIRECTION" in
-    right|down) ;;
-    left|up)    DIRECTION="right" ;;
-    *)          echo "Error: invalid direction '$1' — use right, down, left, or up" >&2; exit 1 ;;
-esac
-
-# Resolve and validate working directory.
-if [ ! -d "$CWD" ]; then
-    echo "Error: directory '$CWD' does not exist" >&2
-    exit 1
-fi
-CWD_ABS="$(cd "$CWD" 2>/dev/null && pwd)" || { echo "Error: cannot access '$CWD'" >&2; exit 1; }
-
-# Build pane label (handle / and trailing-slash edge cases).
-dir_basename="$(basename "$CWD_ABS")"
-if [ -z "$dir_basename" ] || [ "$CWD_ABS" = "/" ]; then
-    dir_basename="root"
-fi
-PANE_LABEL="claude: ${dir_basename}"
-
-# Build the full command line to type into the new pane.
-if [ -n "$CLAUDE_ENV" ]; then
-    FULL_CMD="${CLAUDE_ENV} ${CLAUDE_CMD}"
-else
-    FULL_CMD="$CLAUDE_CMD"
-fi
-
-if [ -n "$INITIAL_PROMPT" ] && ! command -v python3 &>/dev/null; then
-    echo "Error: python3 is required to relay the initial prompt" >&2
-    exit 1
-fi
-
 # ── helpers ────────────────────────────────────────────────────────────
+
+# Get the tab_id of the currently focused pane.
+# Uses ZELLIJ_PANE_ID env var (provided by zellij) for reliable identification.
+get_current_tab_id() {
+    local tab_id
+    local pane_id="${ZELLIJ_PANE_ID:-}"
+
+    if [ -n "$pane_id" ]; then
+        # Use ZELLIJ_PANE_ID for reliable identification
+        tab_id=$(zellij action list-panes --json 2>/dev/null | \
+                 jq -r --argjson pid "$pane_id" '.[] | select(.id == $pid) | .tab_id' 2>/dev/null)
+    else
+        # Fallback: use first focused pane (may be inaccurate with multiple clients)
+        tab_id=$(zellij action list-panes --json 2>/dev/null | \
+                 jq -r 'map(select(.is_focused == true)) | .[0].tab_id' 2>/dev/null)
+    fi
+
+    echo "$tab_id"
+}
 
 # Validate and normalize a pane ID from zellij's stdout.
 # Accepts: terminal_42, plugin_7. Rejects: mixed stderr, empty, junk.
@@ -130,6 +99,65 @@ wait_for_claude_ready() {
     return 1
 }
 
+# ── config & args ───────────────────────────────────────────────────────
+
+DIRECTION="${1:-right}"
+CWD="${2:-$(pwd)}"
+INITIAL_PROMPT="${3:-${ZCP_INITIAL_PROMPT:-}}"
+CLAUDE_CMD="${ZCP_CLAUDE_CMD:-claude}"
+CLAUDE_ENV="${ZCP_CLAUDE_ENV:-}"
+FLOATING="${ZCP_FLOATING:-0}"
+READY_MARK="${ZCP_READY_MARK:-❯}"
+READY_TIMEOUT="${ZCP_READY_TIMEOUT:-30}"
+SCRIPT_PID="$$"
+
+# ── preflight ──────────────────────────────────────────────────────────
+
+if ! zellij action list-panes --json &>/dev/null; then
+    echo "Error: not in a zellij session" >&2
+    exit 1
+fi
+
+# Validate direction.
+case "$DIRECTION" in
+    right|down) ;;
+    left|up)    DIRECTION="right" ;;
+    *)          echo "Error: invalid direction '$1' — use right, down, left, or up" >&2; exit 1 ;;
+esac
+
+# Resolve and validate working directory.
+if [ ! -d "$CWD" ]; then
+    echo "Error: directory '$CWD' does not exist" >&2
+    exit 1
+fi
+CWD_ABS="$(cd "$CWD" 2>/dev/null && pwd)" || { echo "Error: cannot access '$CWD'" >&2; exit 1; }
+
+# Get current tab ID to ensure pane is created in the same tab.
+CURRENT_TAB_ID=$(get_current_tab_id)
+if [ -z "$CURRENT_TAB_ID" ]; then
+    echo "Error: could not determine current tab ID" >&2
+    exit 1
+fi
+
+# Build pane label (handle / and trailing-slash edge cases).
+dir_basename="$(basename "$CWD_ABS")"
+if [ -z "$dir_basename" ] || [ "$CWD_ABS" = "/" ]; then
+    dir_basename="root"
+fi
+PANE_LABEL="claude: ${dir_basename}"
+
+# Build the full command line to type into the new pane.
+if [ -n "$CLAUDE_ENV" ]; then
+    FULL_CMD="${CLAUDE_ENV} ${CLAUDE_CMD}"
+else
+    FULL_CMD="$CLAUDE_CMD"
+fi
+
+if [ -n "$INITIAL_PROMPT" ] && ! command -v python3 &>/dev/null; then
+    echo "Error: python3 is required to relay the initial prompt" >&2
+    exit 1
+fi
+
 # ── create the pane (tiled first, floating fallback) ───────────────────
 
 new_id=""
@@ -137,7 +165,7 @@ tiled_id=""
 
 if [ "$FLOATING" != "1" ]; then
     # Attempt 1: tiled pane, starting Claude directly.
-    raw=$(zellij action new-pane --direction "$DIRECTION" --cwd "$CWD_ABS" -- $FULL_CMD 2>/dev/null) || true
+    raw=$(zellij action new-pane --direction "$DIRECTION" --tab-id "$CURRENT_TAB_ID" --cwd "$CWD_ABS" -- $FULL_CMD 2>/dev/null) || true
     tiled_id=$(normalize_pane_id "$raw")
     sleep 0.8
 
@@ -154,7 +182,7 @@ fi
 
 if [ -z "$new_id" ]; then
     # Attempt 2: floating pane, starting Claude directly.
-    raw=$(zellij action new-pane --floating --cwd "$CWD_ABS" -- $FULL_CMD 2>/dev/null) || true
+    raw=$(zellij action new-pane --floating --tab-id "$CURRENT_TAB_ID" --cwd "$CWD_ABS" -- $FULL_CMD 2>/dev/null) || true
     new_id=$(normalize_pane_id "$raw")
 
     if [ -z "$new_id" ] || ! pane_is_alive "$new_id"; then
