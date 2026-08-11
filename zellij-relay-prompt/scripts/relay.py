@@ -19,6 +19,7 @@ import sys
 import time
 import json
 import os
+import re
 
 # write-chars may truncate beyond ~2KB. Above this threshold, write the
 # prompt to a temp file and send a short pointer instead.
@@ -99,7 +100,24 @@ def main():
         print(f"Error: {prompt_file} is empty", file=sys.stderr)
         sys.exit(1)
 
-    # Guard 1: stale pane id.
+    # Guard 1: validate notify-complete.sh pane IDs in the prompt.
+    # Agents sometimes invent a pane ID instead of using $ZELLIJ_PANE_ID;
+    # catch this early so the target doesn't notify a wrong/non-existent pane.
+    _NOTIFY_RE = re.compile(r'notify-complete\.sh\s+(terminal_\d+|plugin_\d+|\d+)')
+    my_pane = os.environ.get("ZELLIJ_PANE_ID", "")
+    for m in _NOTIFY_RE.finditer(content):
+        ref_id = m.group(1)
+        if my_pane and str(normalize_pane_id(ref_id)) != str(normalize_pane_id(my_pane)):
+            print(
+                f"Warning: notify-complete.sh references pane {ref_id}, "
+                f"but your pane is {my_pane}. "
+                f"Check <your-pane-id> in the notification snippet — "
+                f"it must be YOUR pane ID, not the target's. "
+                f"Run: echo $ZELLIJ_PANE_ID",
+                file=sys.stderr,
+            )
+
+    # Guard 2: stale pane id.
     if not pane_exists(pane):
         print(
             f"Error: pane {pane} not found. "

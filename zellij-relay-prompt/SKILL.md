@@ -57,7 +57,8 @@ message back into your pane as a new input line so you can pick up the result:
 ```
 
 Replace `<your-pane-id>` with your own pane ID — the notification goes back to
-**you**, not to the target. If you don't know your ID: `echo $ZELLIJ_PANE_ID`.
+**you**, not to the target. **Must run `echo $ZELLIJ_PANE_ID` first — never
+guess or invent a number.** relay.py will warn if it detects a mismatch.
 
 Use the absolute script path (the target may lack this skill). Best-effort: the
 target may be busy or decline; if silent, check it with `dump-screen`.
