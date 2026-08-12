@@ -69,7 +69,7 @@ if ! zellij action write-chars --pane-id "$TARGET_PANE" "✓ $MESSAGE"; then
     echo "notify-complete.sh: Error: write-chars to $TARGET_PANE failed" >&2
     exit 1
 fi
-sleep 0.2
+sleep 0.3
 if ! zellij action send-keys --pane-id "$TARGET_PANE" "Enter"; then
     echo "notify-complete.sh: Error: send-keys to $TARGET_PANE failed" >&2
     exit 1

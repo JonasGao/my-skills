@@ -199,7 +199,7 @@ def main():
         sys.exit(1)
 
     # Let the target terminal finish processing the characters.
-    time.sleep(max(0.2, min(len(content) * 0.001, 1.0)))
+    time.sleep(max(0.3, min(len(content) * 0.001, 1.0)))
 
     r = send("send-keys", "Enter")
     if r.returncode != 0:
