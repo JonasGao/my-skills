@@ -1,18 +1,56 @@
 #!/usr/bin/env python3
 """Relay the staged prompt to a zellij pane running a coding agent.
 
-Usage: relay.py <pane-id> [prompt-file]
+Usage:
+    relay.py <pane-id> [prompt-file]
 
-Reads the staged prompt, clears the target's input line, types it verbatim,
-and submits it. Exits non-zero on failure.
+Positional arguments:
+    pane-id       Target pane id (numeric like 354 or string like terminal_354,
+                  plugin_42). Find candidates with scripts/find-pane.sh.
+    prompt-file   Path to the staged prompt. Defaults to
+                  /tmp/zellij-relay-prompt-<pane-id>.md. The default is
+                  per-target (not a shared path) so concurrent relays to
+                  different panes don't clobber each other.
 
-The prompt file defaults to /tmp/zellij-relay-prompt-<pane-id>.md - per-target,
-not a shared path, so concurrent relays to different panes don't clobber each
-other. Pass an explicit path to override.
+Behavior:
+    1. Reads the staged prompt from <prompt-file>.
+    2. Guards the prompt content: if a `notify-complete.sh <pane>` reference
+       in the prompt does not match the running pane's $ZELLIJ_PANE_ID, a
+       warning is printed to stderr. This catches agents that invent a pane
+       ID instead of using $ZELLIJ_PANE_ID literally.
+    3. Guards the target pane: exits 1 if the target pane is not in
+       `zellij action list-panes` (stale id).
+    4. If the prompt exceeds 2000 chars, writes the full content to
+       /tmp/zellij-relay-long-<pane>.md and sends a short Chinese pointer
+       instead. Prints a warning to stderr.
+    5. Sends Ctrl+u to clear the target's input line, write-chars the
+       (possibly shortened) prompt verbatim, sleeps briefly, then sends
+       Enter. write-chars is used (not write) because it simulates typing
+       and lands in the coding agent's TUI input box; raw `write` bytes
+       do not. Reading from a file means backticks, $, quotes, and
+       newlines all survive without shell escaping.
+    6. On success, deletes the staged prompt file (the original path, not
+       the long-prompt pointer).
 
-write-chars is used (not write) because it simulates typing and lands in the
-coding agent's TUI input box; raw `write` bytes do not. Reading from a file
-means backticks, $, quotes, and newlines all survive without shell escaping.
+Exit codes:
+    0   relay succeeded.
+    1   runtime error (zellij unreachable, file not readable, empty file,
+        Ctrl+u / write-chars / Enter failed, stale target pane, long-prompt
+        temp file write failed).
+    2   usage error (no pane-id argument).
+
+Side effects:
+    - On success, deletes <prompt-file> (the staged prompt).
+    - If the prompt exceeds 2000 chars, creates /tmp/zellij-relay-long-<pane>.md
+      containing the full text; the script does NOT delete this file - the
+      receiving agent is expected to read it and remove it.
+
+Environment:
+    ZELLIJ_PANE_ID   Used by Guard 1 to validate notify-complete.sh pane
+                     references inside the prompt. Optional; if unset, the
+                     mismatch warning is skipped.
+
+Full interface and contract: see SKILL.md.
 """
 import subprocess
 import sys
@@ -81,6 +119,10 @@ def make_sender(pane):
 
 
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] in ("--help", "-h"):
+        print(__doc__)
+        sys.exit(0)
+
     if len(sys.argv) < 2:
         print("Usage: relay.py <pane-id> [prompt-file]", file=sys.stderr)
         sys.exit(2)

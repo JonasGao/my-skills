@@ -15,6 +15,14 @@
 #
 # Override the matched commands via $CODE_AGENT_RE (a regex), e.g.:
 #   CODE_AGENT_RE="claude|codex|myagent" bash scripts/find-pane.sh
+# Full interface and contract: see SKILL.md.
+
+case "${1:-}" in
+    --help|-h)
+        awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+        exit 0
+        ;;
+esac
 
 AGENT_RE="${CODE_AGENT_RE:-claude|codex|opencode|aider|gemini}"
 self="${1:-${ZELLIJ_PANE_ID:-}}"

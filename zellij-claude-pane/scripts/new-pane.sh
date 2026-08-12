@@ -16,8 +16,17 @@
 #                      is full and tiled panes turn into ghosts)
 #   ZCP_READY_MARK     prompt glyph to poll for (default: ❯)
 #   ZCP_READY_TIMEOUT  max seconds to wait for Claude startup (default: 30)
+#
+# Full interface and contract: see SKILL.md.
 
 set -euo pipefail
+
+case "${1:-}" in
+    --help|-h)
+        awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+        exit 0
+        ;;
+esac
 
 # ── helpers ────────────────────────────────────────────────────────────
 

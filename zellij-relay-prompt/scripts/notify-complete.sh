@@ -5,6 +5,14 @@
 #
 # Best-effort: verifies the target pane exists before sending. If the target
 # is stale or unreachable, exits non-zero with a message to stderr.
+# Full interface and contract: see SKILL.md.
+
+case "${1:-}" in
+    --help|-h)
+        awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+        exit 0
+        ;;
+esac
 
 if [ $# -lt 2 ]; then
     echo "Usage: $0 <target-pane-id> <message>" >&2
