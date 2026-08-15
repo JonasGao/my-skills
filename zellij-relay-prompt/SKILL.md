@@ -1,6 +1,6 @@
 ---
 name: zellij-relay-prompt
-description: "Relay a prompt to another zellij pane running a coding agent (Claude Code, Codex, OpenCode, Aider, etc.), so that separate agent instance executes it. Use whenever the user wants to delegate or hand off a task to another coding-agent session in a different zellij pane - e.g. 'send this to the other pane', 'relay this prompt', 'ask the other agent to ...', 'delegate to pane X', 'run this in the retail-platform pane', or when coordinating work across multiple parallel agent sessions. Also use when the user refers to a zellij pane by id/title or wants one agent to drive another. Do NOT use to CREATE a new pane — that is zellij-claude-pane."
+description: "Relay a prompt to another zellij pane running a coding agent (Claude Code, Codex, OpenCode, Aider, etc.), so that separate agent instance executes it. Use whenever the user wants to delegate or hand off a task to another coding-agent session in a different zellij pane - e.g. 'send this to the other pane', 'relay this prompt', 'ask the other agent to ...', 'delegate to pane X', 'run this in the retail-platform pane', or when coordinating work across multiple parallel agent sessions. Also use when the user refers to a zellij pane by id/title or wants one agent to drive another. Do NOT use to create a new pane; use zellij-agent-pane."
 ---
 
 # Relay a prompt through zellij
@@ -16,8 +16,8 @@ executed.
 
 ## If no agent pane exists yet
 
-Use `zellij-claude-pane` to create one, then relay to it:
-1. `bash <abs-path-to-zellij-claude-pane>/scripts/new-pane.sh` — creates pane, starts Claude.
+Use `zellij-agent-pane` to create one, then relay to it:
+1. `bash <abs-path-to-zellij-agent-pane>/scripts/new-pane.sh` — creates pane, starts the configured Agent.
 2. The new pane ID is printed; use it as the target for this skill's relay workflow.
 
 ## 你不需要读这些脚本

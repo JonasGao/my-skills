@@ -2,7 +2,7 @@
 
 Loaded on demand when you need the raw command semantics behind the relay.
 For pane-creation commands (new-pane, rename, close), see
-`zellij-claude-pane/zellij-io.md`.
+`zellij-agent-pane/zellij-io.md`.
 
 ## Pane ID formats
 

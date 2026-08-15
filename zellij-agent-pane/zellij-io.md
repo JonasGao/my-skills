@@ -57,7 +57,7 @@ zellij action send-keys --pane-id <id> "Ctrl u"   # clear the input line
 ## Rename a pane
 
 ```bash
-zellij action rename-pane --pane-id <id> "claude: myproject"
+zellij action rename-pane --pane-id <id> "agent: myproject"
 ```
 
 ## Close / kill a pane
