@@ -61,24 +61,34 @@ bash scripts/new-pane.sh [direction] [cwd] [initial-prompt]
 | `ZAP_FLOATING` | `0` | Set to `1` to create a floating pane. |
 | `ZAP_READY_MARK` | none | Required literal screen mark when an initial prompt is supplied. |
 | `ZAP_READY_TIMEOUT` | `30` | Positive seconds to wait for the ready mark. |
+| `ZAP_DEBUG` | `0` | Set to `1` to emit launch and ready-wait diagnostics to stderr. |
 
 `ZAP_AGENT_CMD` and `ZAP_AGENT_ENV` are interpreted by `bash -c`. Obtain their
 values from the user and pass them unchanged; never infer or invent a command.
 
+Set `ZAP_DEBUG=1` when investigating a launch that appears to wait. Its stderr
+records pane-creation boundaries and every ready-mark probe without printing
+the Agent command, Agent environment, ready-mark text, or prompt. A final
+`ready probe started` line with no corresponding `finished` line means the
+underlying `zellij action dump-screen` call is blocking.
+
 ### Results
 
 - `0`: Prints the new pane ID. zellij accepted the command and created the
-  pane; with an initial prompt, the ready mark was found and the prompt was
+  pane, and the Agent command remained running through the one-second startup
+  check; with an initial prompt, the ready mark was found and the prompt was
   sent.
 - `2`: Prints an `ACTION_REQUIRED` diagnostic to stderr. It names every input
   the calling Agent must request before its one retry.
 - `1`: Prints a `START_FAILED` diagnostic to stderr. It covers invalid inputs,
   zellij failures, and failed prompt delivery.
 
-Startup success is the exit status from `zellij action new-pane`: success means
-zellij created the pane and accepted the Agent command. `dump-screen` is used
-only to match `ZAP_READY_MARK` before input is relayed; it is not a startup-
-success check.
+Startup first requires `zellij action new-pane` to create the pane. The pane's
+shell then reports an exit during its first second: the script returns
+`START_FAILED` with that exit status (including `127` for a missing command).
+An interactive Agent that remains running through that window is considered
+started. `dump-screen` is used only to match `ZAP_READY_MARK` before input is
+relayed; it is not a startup-success check.
 
 ### Prompt Delivery
 

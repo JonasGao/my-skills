@@ -32,6 +32,8 @@ asking which ones the user wants to configure:
 - `ZAP_READY_MARK`: the literal screen mark required to send that task safely.
 - `ZAP_READY_TIMEOUT`: positive seconds to wait for the ready mark; the launch
   script uses `30` when this variable is omitted.
+- `ZAP_DEBUG`: set to `1` to emit launch and ready-wait diagnostics to stderr;
+  the script uses `0` when this variable is omitted.
 
 Ask whether the user wants one-time prompt delivery.
 
@@ -39,6 +41,9 @@ Ask whether the user wants one-time prompt delivery.
 - If yes, collect `ZAP_INITIAL_PROMPT` and `ZAP_READY_MARK`; both are required
   together. Then ask whether to set `ZAP_READY_TIMEOUT` or use the script's
   default of `30`.
+
+Ask whether the user wants diagnostic logging. If yes, include
+`ZAP_DEBUG=1`; otherwise omit it and use the script default of `0`.
 
 ## Output
 
@@ -54,6 +59,7 @@ export ZAP_FLOATING='0'
 export ZAP_INITIAL_PROMPT='Review the auth module'
 export ZAP_READY_MARK='>'
 export ZAP_READY_TIMEOUT='45'
+export ZAP_DEBUG='1'
 ```
 
 State that this is a display-only result: the user chooses where to apply it.

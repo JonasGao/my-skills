@@ -14,6 +14,7 @@
 #   ZAP_FLOATING        set to 1 to create a floating pane
 #   ZAP_READY_MARK      required literal mark to wait for when relaying a prompt
 #   ZAP_READY_TIMEOUT   prompt-ready timeout in seconds (default: 30)
+#   ZAP_DEBUG           set to 1 to emit launch and ready-wait diagnostics to stderr
 #
 # Exit status:
 #   0  pane created, and the initial prompt was sent when supplied
@@ -32,6 +33,15 @@ esac
 emit_start_failed() {
     printf 'START_FAILED: %s\n' "$*" >&2
     exit 1
+}
+
+debug() {
+    [ "${DEBUG:-0}" = "1" ] || return 0
+    printf 'ZAP_DEBUG: pid=%s %s\n' "$SCRIPT_PID" "$*" >&2
+}
+
+cleanup_startup_files() {
+    rm -f "${STARTUP_STATUS_FILE:-}" "${STARTUP_ARM_FILE:-}"
 }
 
 is_positive_integer() {
@@ -69,20 +79,60 @@ wait_for_agent_ready() {
     local pane_id="$1"
     local tmpfile="/tmp/zellij-agent-ready-${pane_id}-${SCRIPT_PID}.txt"
     local elapsed=0
+    local dump_status
+    local snapshot_bytes
 
+    debug "ready wait started: pane=${pane_id} timeout_seconds=${READY_TIMEOUT}"
     while [ "$elapsed" -lt "$READY_TIMEOUT" ]; do
         rm -f "$tmpfile"
-        zellij action dump-screen --pane-id "$pane_id" --path "$tmpfile" 2>/dev/null || true
+        debug "ready probe started: pane=${pane_id} attempt=$((elapsed + 1))"
+        if zellij action dump-screen --pane-id "$pane_id" --path "$tmpfile" 2>/dev/null; then
+            dump_status=0
+        else
+            dump_status=$?
+        fi
+        snapshot_bytes=0
+        if [ -f "$tmpfile" ]; then
+            snapshot_bytes=$(wc -c <"$tmpfile")
+        fi
         if grep -qF -- "$READY_MARK" "$tmpfile" 2>/dev/null; then
+            debug "ready probe finished: pane=${pane_id} attempt=$((elapsed + 1)) dump_screen_status=${dump_status} snapshot_bytes=${snapshot_bytes} mark_found=1"
             rm -f "$tmpfile"
             return 0
         fi
+        debug "ready probe finished: pane=${pane_id} attempt=$((elapsed + 1)) dump_screen_status=${dump_status} snapshot_bytes=${snapshot_bytes} mark_found=0"
         sleep 1
         elapsed=$((elapsed + 1))
     done
 
     rm -f "$tmpfile"
+    debug "ready wait timed out: pane=${pane_id} completed_attempts=${elapsed}"
     return 1
+}
+
+wait_for_agent_start() {
+    local pane_id="$1"
+    local status_file="$2"
+    local arm_file="$3"
+    local attempt
+
+    AGENT_START_EXIT=""
+    debug "agent startup check started: pane=${pane_id} window_tenths=10"
+    for ((attempt = 1; attempt <= 10; attempt++)); do
+        if [ -s "$status_file" ]; then
+            if ! read -r AGENT_START_EXIT <"$status_file"; then
+                AGENT_START_EXIT="unknown"
+            fi
+            rm -f "$status_file" "$arm_file"
+            debug "agent startup check failed: pane=${pane_id} exit_status=${AGENT_START_EXIT} attempt=${attempt}"
+            return 1
+        fi
+        sleep 0.1
+    done
+
+    rm -f "$status_file" "$arm_file"
+    debug "agent startup check passed: pane=${pane_id} window_tenths=10"
+    return 0
 }
 
 print_action_required_and_exit() {
@@ -118,7 +168,13 @@ AGENT_ENV="${ZAP_AGENT_ENV:-}"
 FLOATING="${ZAP_FLOATING:-0}"
 READY_MARK="${ZAP_READY_MARK:-}"
 READY_TIMEOUT="${ZAP_READY_TIMEOUT:-30}"
+DEBUG="${ZAP_DEBUG:-0}"
 SCRIPT_PID="$$"
+STARTUP_STATUS_FILE=""
+STARTUP_ARM_FILE=""
+AGENT_START_EXIT=""
+
+trap cleanup_startup_files EXIT
 
 print_action_required_and_exit
 
@@ -136,6 +192,11 @@ esac
 if ! is_positive_integer "$READY_TIMEOUT"; then
     emit_start_failed "ZAP_READY_TIMEOUT must be a positive integer"
 fi
+case "$DEBUG" in
+    0|1) ;;
+    *) emit_start_failed "ZAP_DEBUG must be 0 or 1" ;;
+esac
+debug "launch configuration validated: floating=${FLOATING} prompt_present=$([ -n "$INITIAL_PROMPT" ] && printf 1 || printf 0) agent_env_present=$([ -n "$AGENT_ENV" ] && printf 1 || printf 0) ready_mark_present=$([ -n "$READY_MARK" ] && printf 1 || printf 0) ready_timeout_seconds=${READY_TIMEOUT}"
 if ! command -v python3 >/dev/null 2>&1 && [ -n "$INITIAL_PROMPT" ]; then
     emit_start_failed "python3 is required to relay the initial prompt"
 fi
@@ -167,8 +228,13 @@ fi
 
 launch_stdout=$(mktemp /tmp/zellij-agent-launch-stdout-XXXXXX)
 launch_stderr=$(mktemp /tmp/zellij-agent-launch-stderr-XXXXXX)
+STARTUP_STATUS_FILE=$(mktemp /tmp/zellij-agent-start-status-XXXXXX)
+STARTUP_ARM_FILE=$(mktemp /tmp/zellij-agent-start-arm-XXXXXX)
+rm -f "$STARTUP_STATUS_FILE"
 
-launch_args=(action new-pane --block-until-exit-failure --tab-id "$CURRENT_TAB_ID" --cwd "$CWD_ABS")
+# Interactive Agents normally keep running. A zellij --block-until-* option
+# would therefore hold this launcher open instead of returning the pane ID.
+launch_args=(action new-pane --tab-id "$CURRENT_TAB_ID" --cwd "$CWD_ABS")
 if [ "$FLOATING" = "1" ]; then
     launch_args+=(--floating)
 else
@@ -176,13 +242,21 @@ else
 fi
 
 set +e
+debug "pane creation started: direction=${DIRECTION} floating=${FLOATING}"
 zellij "${launch_args[@]}" -- \
-    bash -c 'exec bash -c "$1"' zellij-agent-launch "$FULL_CMD" >"$launch_stdout" 2>"$launch_stderr"
+    bash -c '
+        startup_status="$1"
+        startup_arm="$2"
+        agent_command="$3"
+        trap '\''agent_exit=$?; if [ -e "$startup_arm" ]; then printf "%s\\n" "$agent_exit" >"$startup_status"; fi'\'' EXIT
+        bash -c "$agent_command"
+    ' zellij-agent-launch "$STARTUP_STATUS_FILE" "$STARTUP_ARM_FILE" "$FULL_CMD" >"$launch_stdout" 2>"$launch_stderr"
 launch_status=$?
 set -e
 
 launch_output=$(<"$launch_stdout")
 rm -f "$launch_stdout"
+debug "pane creation finished: zellij_exit=${launch_status} pane_id_returned=$([ -n "$launch_output" ] && printf 1 || printf 0)"
 
 if [ "$launch_status" -ne 0 ]; then
     echo "START_FAILED: zellij could not create the Agent pane (launcher exit ${launch_status})." >&2
@@ -199,14 +273,31 @@ new_id=$(normalize_pane_id "$launch_output") || {
     emit_start_failed "zellij created a pane but did not return its pane ID"
 }
 rm -f "$launch_stderr"
+debug "pane creation identified: pane=${new_id}"
 
 if ! zellij action rename-pane --pane-id "$new_id" "$PANE_LABEL"; then
     emit_start_failed "created pane $new_id but could not rename it"
+fi
+debug "pane renamed: pane=${new_id}"
+
+if ! wait_for_agent_start "$new_id" "$STARTUP_STATUS_FILE" "$STARTUP_ARM_FILE"; then
+    case "$AGENT_START_EXIT" in
+        127)
+            emit_start_failed "agent command exited during startup with status 127 (command not found); ask the user to correct ZAP_AGENT_CMD or ZAP_AGENT_ENV, then retry once"
+            ;;
+        0)
+            emit_start_failed "agent command exited during startup with status 0; ask the user for a command that keeps the coding agent running, then retry once"
+            ;;
+        *)
+            emit_start_failed "agent command exited during startup with status ${AGENT_START_EXIT}; ask the user to correct ZAP_AGENT_CMD or ZAP_AGENT_ENV, then retry once"
+            ;;
+    esac
 fi
 
 printf '%s\n' "$new_id"
 
 if [ -z "$INITIAL_PROMPT" ]; then
+    debug "launch complete: pane=${new_id} prompt_delivery=skipped"
     exit 0
 fi
 
@@ -214,6 +305,7 @@ if ! wait_for_agent_ready "$new_id"; then
     emit_start_failed "agent pane $new_id started but did not show ZAP_READY_MARK within ${READY_TIMEOUT}s; the initial prompt was not sent"
 fi
 printf 'Agent ready in pane %s.\n' "$new_id"
+debug "prompt delivery started: pane=${new_id} prompt_bytes=$(printf '%s' "$INITIAL_PROMPT" | wc -c)"
 
 prompt_file="/tmp/zellij-agent-init-${new_id}-${SCRIPT_PID}.md"
 prompt_len=$(printf '%s' "$INITIAL_PROMPT" | wc -c)
@@ -272,3 +364,4 @@ PYEOF
     rm -f "$prompt_file"
     printf 'Sent initial prompt to pane %s.\n' "$new_id"
 fi
+debug "prompt delivery finished: pane=${new_id}"
