@@ -17,3 +17,8 @@ _Avoid_: Claude command
 An actionable result from the pane-launch script that states whether it can
 start an Agent pane and what input is needed when it cannot.
 _Avoid_: generic error, setup hint
+
+**Launch configuration**:
+The user-supplied environment values used to create an Agent pane, including
+both reusable Agent settings and optional one-time task settings.
+_Avoid_: setup script, automatic configuration
