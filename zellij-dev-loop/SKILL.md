@@ -31,26 +31,29 @@ Wait for the session to load (~5-10 seconds) before sending tasks.
 
 ### 2. Send the initial task
 
-Invoke the `zellij-relay-prompt` skill to send the implementation task:
+Create a tracked delegation through `zellij-relay-prompt`, then send the
+implementation task:
 
 ```
-Use zellij-relay-prompt to send this task to pane <developer-pane-id>:
+Create a Reply route and start its Reply waiter as a background task. Use
+zellij-relay-prompt to send this task to pane <developer-pane-id>:
 
 Implement a user authentication module with:
 - JWT token generation
 - Password hashing with bcrypt
 - Login/logout endpoints
 
-When done, notify me.
 ```
 
-The zellij-relay-prompt skill handles staging the prompt and relaying it to the target pane. Always include a completion notification request so the developer signals when finished.
+The staged task must include the generated `reply-to-request.py` command. The
+reviewer Agent remains free to inspect other work while the Reply waiter runs.
 
-### 3. Wait for completion notification
+### 3. Consume the waiter result
 
-The developer will send a notification when finished. Wait for this signal.
-
-If you don't receive a notification after a reasonable time, check the developer pane status using `zellij action dump-screen`.
+When the background Reply waiter exits, consume its JSON stdout. Do not poll the
+developer pane or use `dump-screen` to infer completion. A `failed` result is a
+valid terminal result and should be reviewed as such; infrastructure errors
+from the waiter require restarting it with the same request ID.
 
 ### 4. Review the implemented code
 
@@ -83,7 +86,6 @@ Fix the following issues:
 2. Missing error handling (auth.js:28): Add try-catch around JWT sign
 3. Hardcoded secret (auth.js:15): Load from JWT_SECRET env var
 
-When done, notify me.
 ```
 
 **Be specific**: Include file paths, line numbers, and exact fixes needed. This lets the developer act quickly.
@@ -92,7 +94,7 @@ When done, notify me.
 
 Repeat steps 3-5 until the review finds no issues:
 
-1. Wait for developer notification
+1. Consume the Reply waiter result
 2. Review the fixes
 3. If issues remain → send fix request
 4. If clean → approve and close the loop
@@ -115,11 +117,12 @@ If no longer needed, close the developer pane using `zellij action close-pane`.
 **For the developer (via your prompts):**
 - Provide clear, specific task descriptions.
 - Include acceptance criteria when relevant.
-- Ask the developer to notify you on completion.
+- Ask the developer to submit a structured Delegation reply on completion.
 
 **Communication pattern:**
-- Always request completion notification in your prompts to the developer.
-- Include a brief summary in the notification (e.g., "done: auth module ready").
+- Always include the generated reply command in tracked prompts.
+- Put the short completion summary in the reply summary file and place longer
+  output in the optional result file.
 
 ## Example Session
 
@@ -127,14 +130,14 @@ If no longer needed, close the developer pane using `zellij action close-pane`.
 
 **You (reviewer)**:
 1. Invoke `zellij-agent-pane` → creates pane `terminal_15`
-2. Invoke `zellij-relay-prompt` → sends task "Implement a REST API for a todo list with CRUD endpoints..."
-3. Developer notifies: "done: API implemented"
+2. Create a Reply route, start its waiter, and invoke `zellij-relay-prompt` → sends task "Implement a REST API for a todo list with CRUD endpoints..."
+3. The waiter returns a `succeeded` JSON result with the API summary
 4. Invoke `/code-review` on the changes → find 3 issues
-5. Invoke `zellij-relay-prompt` → sends "Fix these 3 issues..."
-6. Developer notifies: "done: issues fixed"
+5. Create a new tracked request and invoke `zellij-relay-prompt` → sends "Fix these 3 issues..."
+6. The new waiter returns a `succeeded` JSON result
 7. Review fixes → find 1 remaining issue
-8. Invoke `zellij-relay-prompt` → sends "Fix validation in POST /todos..."
-9. Developer notifies: "done: validation fixed"
+8. Create another tracked request and invoke `zellij-relay-prompt` → sends "Fix validation in POST /todos..."
+9. The waiter returns a `succeeded` JSON result
 10. Review → clean. Inform user: "Implementation complete and reviewed."
 
 ## When to use this skill

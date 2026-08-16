@@ -2,34 +2,27 @@
 """Relay the staged prompt to a zellij pane running a coding agent.
 
 Usage:
-    relay.py <pane-id> [prompt-file]
+    relay.py <pane-id> <prompt-file>
 
 Positional arguments:
     pane-id       Target pane id (numeric like 354 or string like terminal_354,
                   plugin_42). Find candidates with scripts/find-pane.sh.
-    prompt-file   Path to the staged prompt. Defaults to
-                  /tmp/zellij-relay-prompt-<pane-id>.md. The default is
-                  per-target (not a shared path) so concurrent relays to
-                  different panes don't clobber each other.
+    prompt-file   Required unique path to the staged prompt.
 
 Behavior:
     1. Reads the staged prompt from <prompt-file>.
-    2. Guards the prompt content: if a `notify-complete.sh <pane>` reference
-       in the prompt does not match the running pane's $ZELLIJ_PANE_ID, a
-       warning is printed to stderr. This catches agents that invent a pane
-       ID instead of using $ZELLIJ_PANE_ID literally.
-    3. Guards the target pane: exits 1 if the target pane is not in
+    2. Guards the target pane: exits 1 if the target pane is not in
        `zellij action list-panes` (stale id).
-    4. If the prompt exceeds 2000 chars, writes the full content to
-       /tmp/zellij-relay-long-<pane>.md and sends a short Chinese pointer
-       instead. Prints a warning to stderr.
-    5. Sends Ctrl+u to clear the target's input line, write-chars the
+    3. If the prompt exceeds 2000 chars, writes the full content to a unique
+       Markdown file in the system temporary directory and sends a short
+       Chinese pointer instead. Prints the retained file path to stderr.
+    4. Sends Ctrl+u to clear the target's input line, write-chars the
        (possibly shortened) prompt verbatim, sleeps briefly, then sends
        Enter. write-chars is used (not write) because it simulates typing
        and lands in the coding agent's TUI input box; raw `write` bytes
        do not. Reading from a file means backticks, $, quotes, and
        newlines all survive without shell escaping.
-    6. On success, deletes the staged prompt file (the original path, not
+    5. On success, deletes the staged prompt file (the original path, not
        the long-prompt pointer).
 
 Exit codes:
@@ -37,18 +30,13 @@ Exit codes:
     1   runtime error (zellij unreachable, file not readable, empty file,
         Ctrl+u / write-chars / Enter failed, stale target pane, long-prompt
         temp file write failed).
-    2   usage error (no pane-id argument).
+    2   usage error (missing pane-id or prompt-file).
 
 Side effects:
     - On success, deletes <prompt-file> (the staged prompt).
-    - If the prompt exceeds 2000 chars, creates /tmp/zellij-relay-long-<pane>.md
-      containing the full text; the script does NOT delete this file - the
-      receiving agent is expected to read it and remove it.
-
-Environment:
-    ZELLIJ_PANE_ID   Used by Guard 1 to validate notify-complete.sh pane
-                     references inside the prompt. Optional; if unset, the
-                     mismatch warning is skipped.
+    - If the prompt exceeds 2000 chars, creates a unique current-user-only
+      Markdown file in the system temporary directory containing the full text.
+      The script and receiving agent both leave it for system-managed cleanup.
 
 Full interface and contract: see SKILL.md.
 """
@@ -58,6 +46,7 @@ import time
 import json
 import os
 import re
+import tempfile
 
 # write-chars may truncate beyond ~2KB. Above this threshold, write the
 # prompt to a temp file and send a short pointer instead.
@@ -118,17 +107,23 @@ def make_sender(pane):
     return send
 
 
+def long_prompt_prefix(pane):
+    """Return a temp-file-safe prefix that remains useful when debugging."""
+    safe_pane = re.sub(r"[^A-Za-z0-9_.-]", "_", str(pane))
+    return f"zellij-relay-long-{safe_pane}-"
+
+
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] in ("--help", "-h"):
         print(__doc__)
         sys.exit(0)
 
-    if len(sys.argv) < 2:
-        print("Usage: relay.py <pane-id> [prompt-file]", file=sys.stderr)
+    if len(sys.argv) < 3:
+        print("Usage: relay.py <pane-id> <prompt-file>", file=sys.stderr)
         sys.exit(2)
 
     pane = sys.argv[1]
-    prompt_file = sys.argv[2] if len(sys.argv) > 2 else f"/tmp/zellij-relay-prompt-{pane}.md"
+    prompt_file = sys.argv[2]
     send = make_sender(pane)
 
     # Read the staged prompt.
@@ -142,24 +137,7 @@ def main():
         print(f"Error: {prompt_file} is empty", file=sys.stderr)
         sys.exit(1)
 
-    # Guard 1: validate notify-complete.sh pane IDs in the prompt.
-    # Agents sometimes invent a pane ID instead of using $ZELLIJ_PANE_ID;
-    # catch this early so the target doesn't notify a wrong/non-existent pane.
-    _NOTIFY_RE = re.compile(r'notify-complete\.sh\s+(terminal_\d+|plugin_\d+|\d+)')
-    my_pane = os.environ.get("ZELLIJ_PANE_ID", "")
-    for m in _NOTIFY_RE.finditer(content):
-        ref_id = m.group(1)
-        if my_pane and str(normalize_pane_id(ref_id)) != str(normalize_pane_id(my_pane)):
-            print(
-                f"Warning: notify-complete.sh references pane {ref_id}, "
-                f"but your pane is {my_pane}. "
-                f"Check <your-pane-id> in the notification snippet — "
-                f"it must be YOUR pane ID, not the target's. "
-                f"Run: echo $ZELLIJ_PANE_ID",
-                file=sys.stderr,
-            )
-
-    # Guard 2: stale pane id.
+    # Guard: stale pane id.
     if not pane_exists(pane):
         print(
             f"Error: pane {pane} not found. "
@@ -170,19 +148,25 @@ def main():
 
     # Handle long prompts: write to temp file, send a short pointer.
     if len(content) > TRUNCATION_THRESHOLD:
-        pointer_file = f"/tmp/zellij-relay-long-{pane}.md"
+        prompt_length = len(content)
+        pointer_file = ""
         try:
-            with open(pointer_file, "w") as f:
+            fd, pointer_file = tempfile.mkstemp(
+                prefix=long_prompt_prefix(pane),
+                suffix=".md",
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
         except OSError as e:
-            print(f"Error: cannot write {pointer_file}: {e}", file=sys.stderr)
+            location = pointer_file or "the system temporary directory"
+            print(f"Error: cannot write {location}: {e}", file=sys.stderr)
             sys.exit(1)
         content = (
-            f"请读取 {pointer_file} 并完整执行其中的任务。完成后删除该文件。"
+            f"请读取 {pointer_file} 并完整执行其中的任务。"
         )
         print(
-            f"Warning: prompt is {len(content)} chars (threshold {TRUNCATION_THRESHOLD}), "
-            f"full content written to {pointer_file}.",
+            f"Warning: prompt is {prompt_length} chars (threshold {TRUNCATION_THRESHOLD}), "
+            f"full content retained for debugging at {pointer_file}.",
             file=sys.stderr,
         )
 

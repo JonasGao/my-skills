@@ -6,7 +6,10 @@ description: "Create a new zellij pane and start a configured coding agent in it
 # Open an Agent Pane
 
 Create a new zellij pane through `scripts/new-pane.sh`. It starts only the
-Agent command supplied by the user; it has no product-specific default.
+Agent command supplied by the user; it has no product-specific default. A
+tracked delegation is delivered after the pane exists through
+`zellij-relay-prompt`, so its Reply route and Reply waiter are ready before the
+task is sent.
 
 `scripts/` paths are relative to this skill directory. The script interface
 below is authoritative. Do not inspect the script unless it must be changed.
@@ -29,7 +32,9 @@ below is authoritative. Do not inspect the script unless it must be changed.
 
 2. Handle its exit status exactly:
 
-   - `0`: report the pane ID. Use `zellij-relay-prompt` for later interaction.
+   - `0`: report the pane ID. Use `zellij-relay-prompt` for later interaction;
+     for a tracked delegation, create its Reply route and start its Reply
+     waiter before relaying the task.
    - `2`: parse the `ACTION_REQUIRED: missing=...` line. Ask the current user
      only for those listed values, use their answers for the second invocation,
      then run the script exactly once more.
@@ -37,9 +42,14 @@ below is authoritative. Do not inspect the script unless it must be changed.
      configuration or make another attempt.
 
 When using `zellij-relay-prompt` after pane creation, omit `initial-prompt`.
-That path does not require `ZAP_READY_MARK`.
+That path does not require `ZAP_READY_MARK` and is the required path for a
+tracked delegation. Supplying `initial-prompt` is the explicit
+fire-and-forget path; it has no Reply route or Reply waiter.
 
 For example, after the user supplies the Agent command and ready mark:
+
+This direct initial-prompt example is fire-and-forget. Use the tracked
+delegation workflow below when the sender must receive a result.
 
 ```bash
 ZAP_AGENT_CMD="codex --full-auto" \
@@ -107,14 +117,28 @@ relayed; it is not a startup-success check.
 
 The script refuses to send an initial prompt without `ZAP_READY_MARK`. This
 prevents task text from being typed into a shell before the Agent is ready.
+Direct initial prompts are fire-and-forget. A tracked delegation must be
+staged and sent through `zellij-relay-prompt` only after its Reply waiter has
+started.
 
-Prompts over 2,000 bytes are written to
-`/tmp/zellij-agent-init-<pane-id>-<pid>.md`; the Agent receives a short pointer
-and removes the file after reading it. Short prompts are relayed directly and
-their temporary files are removed by the script.
+Prompts over 2,000 bytes are written as uniquely named Markdown files in the
+system temporary directory. The Agent receives a short pointer to read and
+execute the task; the file is retained for debugging until the system cleans it
+up. Short prompts are relayed directly and their temporary files are removed by
+the script.
 
 ## Follow-Up Interaction
 
-Use `zellij-relay-prompt` after the pane exists. Append its completion-notice
-snippet unless the user explicitly asks for fire-and-forget execution. Do not
-poll the pane for progress.
+For a tracked delegation, use `zellij-relay-prompt` after the pane exists:
+
+1. Create a Reply route with
+   `<abs-path-to-zellij-relay-prompt>/scripts/create-reply-route.py`.
+2. Start `<abs-path-to-zellij-relay-prompt>/scripts/wait-for-reply.py
+   <request-id>` as a background task owned by the sending Agent. The default
+   wait is unlimited.
+3. Include the generated reply instructions in the staged task and relay it.
+4. Let the Agent runtime consume the waiter's JSON stdout when it exits.
+
+Do not append the retired `notify-complete.sh` completion-notice snippet and do
+not poll the target pane for progress. Use the explicit fire-and-forget path
+only when no reply is needed.
