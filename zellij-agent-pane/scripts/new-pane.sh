@@ -310,15 +310,35 @@ fi
 printf 'Agent ready in pane %s.\n' "$new_id"
 debug "prompt delivery started: pane=${new_id} prompt_bytes=$(printf '%s' "$INITIAL_PROMPT" | wc -c)"
 
-prompt_file="/tmp/zellij-agent-init-${new_id}-${SCRIPT_PID}.md"
 prompt_len=$(printf '%s' "$INITIAL_PROMPT" | wc -c)
 
-if ! printf '%s' "$INITIAL_PROMPT" >"$prompt_file"; then
+# tempfile selects the platform's system temporary directory and creates the
+# task document with current-user-only access.
+prompt_file=$(printf '%s' "$INITIAL_PROMPT" | python3 -c '
+import os
+import sys
+import tempfile
+
+fd, path = tempfile.mkstemp(
+    prefix=f"zellij-agent-init-{sys.argv[1]}-",
+    suffix=".md",
+)
+try:
+    with os.fdopen(fd, "wb") as prompt_file:
+        prompt_file.write(sys.stdin.buffer.read())
+except BaseException:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    raise
+print(path)
+' "$new_id") || {
     emit_start_failed "could not stage the initial prompt"
-fi
+}
 
 if [ "$prompt_len" -gt 2000 ]; then
-    pointer="Read ${prompt_file} and execute its complete task. Delete the file when finished."
+    pointer="Read ${prompt_file} and execute its complete task."
     if ! python3 - "$new_id" "$pointer" <<'PYEOF'
 import subprocess
 import sys
@@ -339,7 +359,7 @@ PYEOF
     then
         emit_start_failed "could not send the pointer for the initial prompt to pane $new_id"
     fi
-    printf 'Sent prompt pointer to %s (prompt was %s chars).\n' "$prompt_file" "$prompt_len"
+    printf 'Sent prompt pointer to %s (prompt was %s bytes).\n' "$prompt_file" "$prompt_len"
 else
     if ! python3 - "$new_id" "$prompt_file" <<'PYEOF'
 import subprocess
