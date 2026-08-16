@@ -20,14 +20,24 @@ below is authoritative. Do not inspect the script unless it must be changed.
    bash scripts/new-pane.sh [direction] [cwd] [initial-prompt]
    ```
 
+   The script automatically inherits the current process environment. Treat
+   that environment as the launch configuration; do not inspect or print it.
+   The only permitted override is an exact `ZAP_*` value the current user
+   explicitly supplied for this launch. Do not use shell profiles, prior
+   conversations, session logs, files, pane contents, or memory as a
+   configuration source.
+
 2. Handle its exit status exactly:
 
    - `0`: report the pane ID. Use `zellij-relay-prompt` for later interaction.
-   - `2`: read every `ACTION_REQUIRED` line. Ask the current user only for the
-     listed values, set the returned `ZAP_*` variables, then run the script
-     exactly once more.
+   - `2`: parse the `ACTION_REQUIRED: missing=...` line. Ask the current user
+     only for those listed values, use their answers for the second invocation,
+     then run the script exactly once more.
    - `1`: show the `START_FAILED` diagnostic to the user and stop. Do not guess
      configuration or make another attempt.
+
+When using `zellij-relay-prompt` after pane creation, omit `initial-prompt`.
+That path does not require `ZAP_READY_MARK`.
 
 For example, after the user supplies the Agent command and ready mark:
 
@@ -63,8 +73,10 @@ bash scripts/new-pane.sh [direction] [cwd] [initial-prompt]
 | `ZAP_READY_TIMEOUT` | `30` | Positive seconds to wait for the ready mark. |
 | `ZAP_DEBUG` | `0` | Set to `1` to emit launch and ready-wait diagnostics to stderr. |
 
-`ZAP_AGENT_CMD` and `ZAP_AGENT_ENV` are interpreted by `bash -c`. Obtain their
-values from the user and pass them unchanged; never infer or invent a command.
+`ZAP_AGENT_CMD` and `ZAP_AGENT_ENV` are interpreted by `bash -c`. The inherited
+process environment is authoritative. Use a current-user value only as an
+explicit per-launch override; pass it unchanged. Never infer a command or
+recover a value from historical material.
 
 Set `ZAP_DEBUG=1` when investigating a launch that appears to wait. Its stderr
 records pane-creation boundaries and every ready-mark probe without printing
@@ -78,8 +90,9 @@ underlying `zellij action dump-screen` call is blocking.
   pane, and the Agent command remained running through the one-second startup
   check; with an initial prompt, the ready mark was found and the prompt was
   sent.
-- `2`: Prints an `ACTION_REQUIRED` diagnostic to stderr. It names every input
-  the calling Agent must request before its one retry.
+- `2`: Prints `ACTION_REQUIRED: missing=<comma-separated ZAP_* names>` to
+  stderr, followed by descriptions of those inputs. The calling Agent requests
+  exactly those names before its one retry.
 - `1`: Prints a `START_FAILED` diagnostic to stderr. It covers invalid inputs,
   zellij failures, and failed prompt delivery.
 

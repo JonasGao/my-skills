@@ -19,7 +19,7 @@
 # Exit status:
 #   0  pane created, and the initial prompt was sent when supplied
 #   1  START_FAILED: configuration was valid but pane creation or relay failed
-#   2  ACTION_REQUIRED: ask the user for the listed configuration, then retry once
+#   2  ACTION_REQUIRED: reports missing=ZAP_* names; ask only for those values, then retry once
 
 set -euo pipefail
 
@@ -136,17 +136,20 @@ wait_for_agent_start() {
 }
 
 print_action_required_and_exit() {
-    local requested=0
+    local missing=()
+    local missing_csv
 
     if [ -z "$AGENT_CMD" ]; then
-        requested=1
+        missing+=(ZAP_AGENT_CMD)
     fi
     if [ -n "$INITIAL_PROMPT" ] && [ -z "$READY_MARK" ]; then
-        requested=1
+        missing+=(ZAP_READY_MARK)
     fi
-    [ "$requested" -eq 1 ] || return 0
+    [ "${#missing[@]}" -gt 0 ] || return 0
 
-    echo "ACTION_REQUIRED: launch configuration is incomplete." >&2
+    missing_csv=$(printf '%s,' "${missing[@]}")
+    missing_csv=${missing_csv%,}
+    echo "ACTION_REQUIRED: missing=${missing_csv}" >&2
     echo "Ask the user for the following values, then run this script once more:" >&2
     if [ -z "$AGENT_CMD" ]; then
         echo "- ZAP_AGENT_CMD: the command, including any arguments, that starts their coding agent." >&2
