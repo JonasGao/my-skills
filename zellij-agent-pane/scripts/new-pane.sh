@@ -10,6 +10,7 @@
 # Environment:
 #   ZAP_AGENT_CMD       required command that starts the coding agent
 #   ZAP_AGENT_ENV       optional environment assignments prepended to the command
+#   ZAP_AGENT_INIT      optional shell file sourced before the agent command
 #   ZAP_INITIAL_PROMPT  fallback initial prompt if not given as the third argument
 #   ZAP_FLOATING        set to 1 to create a floating pane
 #   ZAP_READY_MARK      required literal mark to wait for when relaying a prompt
@@ -168,6 +169,7 @@ CWD="${2:-$(pwd)}"
 INITIAL_PROMPT="${3:-${ZAP_INITIAL_PROMPT:-}}"
 AGENT_CMD="${ZAP_AGENT_CMD:-}"
 AGENT_ENV="${ZAP_AGENT_ENV:-}"
+AGENT_INIT="${ZAP_AGENT_INIT:-}"
 FLOATING="${ZAP_FLOATING:-0}"
 READY_MARK="${ZAP_READY_MARK:-}"
 READY_TIMEOUT="${ZAP_READY_TIMEOUT:-30}"
@@ -199,7 +201,6 @@ case "$DEBUG" in
     0|1) ;;
     *) emit_start_failed "ZAP_DEBUG must be 0 or 1" ;;
 esac
-debug "launch configuration validated: floating=${FLOATING} prompt_present=$([ -n "$INITIAL_PROMPT" ] && printf 1 || printf 0) agent_env_present=$([ -n "$AGENT_ENV" ] && printf 1 || printf 0) ready_mark_present=$([ -n "$READY_MARK" ] && printf 1 || printf 0) ready_timeout_seconds=${READY_TIMEOUT}"
 if ! command -v python3 >/dev/null 2>&1 && [ -n "$INITIAL_PROMPT" ]; then
     emit_start_failed "python3 is required to relay the initial prompt"
 fi
@@ -211,6 +212,21 @@ if [ ! -d "$CWD" ]; then
     emit_start_failed "directory '$CWD' does not exist"
 fi
 CWD_ABS="$(cd "$CWD" 2>/dev/null && pwd)" || emit_start_failed "cannot access '$CWD'"
+
+AGENT_INIT_FILE=""
+if [ -n "$AGENT_INIT" ]; then
+    case "$AGENT_INIT" in
+        /*) AGENT_INIT_FILE="$AGENT_INIT" ;;
+        *) AGENT_INIT_FILE="$CWD_ABS/$AGENT_INIT" ;;
+    esac
+    if [ ! -f "$AGENT_INIT_FILE" ]; then
+        emit_start_failed "agent init file '$AGENT_INIT_FILE' does not exist"
+    fi
+    if [ ! -r "$AGENT_INIT_FILE" ]; then
+        emit_start_failed "agent init file '$AGENT_INIT_FILE' is not readable"
+    fi
+fi
+debug "launch configuration validated: floating=${FLOATING} prompt_present=$([ -n "$INITIAL_PROMPT" ] && printf 1 || printf 0) agent_env_present=$([ -n "$AGENT_ENV" ] && printf 1 || printf 0) agent_init_present=$([ -n "$AGENT_INIT_FILE" ] && printf 1 || printf 0) ready_mark_present=$([ -n "$READY_MARK" ] && printf 1 || printf 0) ready_timeout_seconds=${READY_TIMEOUT}"
 
 CURRENT_TAB_ID=$(get_current_tab_id)
 if [ -z "$CURRENT_TAB_ID" ] || [ "$CURRENT_TAB_ID" = "null" ]; then
@@ -251,9 +267,20 @@ zellij "${launch_args[@]}" -- \
         startup_status="$1"
         startup_arm="$2"
         agent_command="$3"
-        trap '\''agent_exit=$?; if [ -e "$startup_arm" ]; then printf "%s\\n" "$agent_exit" >"$startup_status"; fi'\'' EXIT
-        bash -c "$agent_command"
-    ' zellij-agent-launch "$STARTUP_STATUS_FILE" "$STARTUP_ARM_FILE" "$FULL_CMD" >"$launch_stdout" 2>"$launch_stderr"
+        agent_init="$4"
+        startup_failure_kind=""
+        trap '\''agent_exit=$?; if [ -e "$startup_arm" ]; then if [ -n "$startup_failure_kind" ]; then printf "%s:%s\\n" "$startup_failure_kind" "$agent_exit" >"$startup_status"; else printf "%s\\n" "$agent_exit" >"$startup_status"; fi; fi'\'' EXIT
+        if [ -n "$agent_init" ]; then
+            if source "$agent_init"; then
+                :
+            else
+                init_exit=$?
+                startup_failure_kind="INIT"
+                exit "$init_exit"
+            fi
+        fi
+        eval "$agent_command"
+    ' zellij-agent-launch "$STARTUP_STATUS_FILE" "$STARTUP_ARM_FILE" "$FULL_CMD" "${AGENT_INIT_FILE:-}" >"$launch_stdout" 2>"$launch_stderr"
 launch_status=$?
 set -e
 
@@ -285,6 +312,10 @@ debug "pane renamed: pane=${new_id}"
 
 if ! wait_for_agent_start "$new_id" "$STARTUP_STATUS_FILE" "$STARTUP_ARM_FILE"; then
     case "$AGENT_START_EXIT" in
+        INIT:*)
+            init_status="${AGENT_START_EXIT#INIT:}"
+            emit_start_failed "agent init file '$AGENT_INIT_FILE' failed with status ${init_status}"
+            ;;
         127)
             emit_start_failed "agent command exited during startup with status 127 (command not found); ask the user to correct ZAP_AGENT_CMD or ZAP_AGENT_ENV, then retry once"
             ;;

@@ -28,6 +28,8 @@ Ask these three questions in order. Do not infer values.
 After the required settings, explicitly present all remaining settings before
 asking which ones the user wants to configure:
 
+- `ZAP_AGENT_INIT`: an optional shell file sourced once before the Agent command;
+  relative paths resolve from the target pane's `cwd`.
 - `ZAP_INITIAL_PROMPT`: a one-time task to send when the Agent starts.
 - `ZAP_READY_MARK`: the literal screen mark required to send that task safely.
 - `ZAP_READY_TIMEOUT`: positive seconds to wait for the ready mark; the launch
@@ -55,6 +57,7 @@ result unchanged.
 ```bash
 export ZAP_AGENT_CMD='codex --full-auto'
 export ZAP_AGENT_ENV='API_BASE=https://example.test'
+export ZAP_AGENT_INIT='/home/user/.config/my-agent/init.sh'
 export ZAP_FLOATING='0'
 export ZAP_INITIAL_PROMPT='Review the auth module'
 export ZAP_READY_MARK='>'

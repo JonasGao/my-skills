@@ -53,6 +53,7 @@ delegation workflow below when the sender must receive a result.
 
 ```bash
 ZAP_AGENT_CMD="codex --full-auto" \
+ZAP_AGENT_INIT="$HOME/.config/my-agent/init.sh" \
 ZAP_READY_MARK="›" \
 bash scripts/new-pane.sh right /path/to/project "Review the auth module"
 ```
@@ -77,16 +78,27 @@ bash scripts/new-pane.sh [direction] [cwd] [initial-prompt]
 | --- | --- | --- |
 | `ZAP_AGENT_CMD` | none | Required command, with any arguments, that starts the Agent. |
 | `ZAP_AGENT_ENV` | none | Optional shell environment assignments prepended to the Agent command. |
+| `ZAP_AGENT_INIT` | none | Optional shell file sourced once before the Agent command; relative paths resolve from the target `cwd`. |
 | `ZAP_INITIAL_PROMPT` | none | Fallback initial prompt. |
 | `ZAP_FLOATING` | `0` | Set to `1` to create a floating pane. |
 | `ZAP_READY_MARK` | none | Required literal screen mark when an initial prompt is supplied. |
 | `ZAP_READY_TIMEOUT` | `30` | Positive seconds to wait for the ready mark. |
 | `ZAP_DEBUG` | `0` | Set to `1` to emit launch and ready-wait diagnostics to stderr. |
 
-`ZAP_AGENT_CMD` and `ZAP_AGENT_ENV` are interpreted by `bash -c`. The inherited
-process environment is authoritative. Use a current-user value only as an
-explicit per-launch override; pass it unchanged. Never infer a command or
-recover a value from historical material.
+`ZAP_AGENT_CMD` and `ZAP_AGENT_ENV` are interpreted by Bash. If
+`ZAP_AGENT_INIT` is set, the file is sourced once in the same Bash process
+before the Agent command is evaluated, so exported variables and shell
+functions from the file are available to the command. `ZAP_AGENT_ENV` is
+evaluated after the init file and therefore acts as the explicit per-launch
+override for the Agent command. The inherited process environment is
+authoritative. Use a current-user value only as an explicit per-launch
+override; pass it unchanged. Never infer a command or recover a value from
+historical material.
+
+`ZAP_AGENT_INIT` is not an implicit `~/.bashrc` or `BASH_ENV` hook. It must name
+an existing, readable file; a missing file or a non-zero status while sourcing
+it fails the launch. The file is sourced non-interactively, so aliases are not
+part of the Agent launch contract.
 
 Set `ZAP_DEBUG=1` when investigating a launch that appears to wait. Its stderr
 records pane-creation boundaries and every ready-mark probe without printing

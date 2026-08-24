@@ -13,6 +13,12 @@ _Avoid_: Claude pane, worker pane
 The explicit command that starts the coding agent in an Agent pane.
 _Avoid_: Claude command
 
+**Agent init file**:
+An explicitly selected shell file sourced for an Agent launch to establish the
+agent's startup environment. It is launch-scoped and is not an implicit shell
+profile.
+_Avoid_: bashrc, shell profile
+
 **Launch diagnostic**:
 An actionable result from the pane-launch script that states whether it can
 start an Agent pane and what input is needed when it cannot.

@@ -11,6 +11,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -133,6 +134,8 @@ class NewPaneTaskDocumentTests(unittest.TestCase):
         self.bin_dir = self.temp_path / "bin"
         self.bin_dir.mkdir()
         self.write_chars_log = self.temp_path / "write-chars.txt"
+        self.agent_output = self.temp_path / "agent-output.txt"
+        self.agent_pid_file = self.temp_path / "agent-pid.txt"
         zellij = self.bin_dir / "zellij"
         zellij.write_text(
             """#!/usr/bin/env bash
@@ -142,6 +145,12 @@ case "${2:-}" in
         printf '[{"id": 1, "tab_id": 7, "is_focused": true}]\\n'
         ;;
     new-pane)
+        while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+            shift
+        done
+        shift
+        "$@" >"$ZAP_TEST_AGENT_STDOUT" 2>"$ZAP_TEST_AGENT_STDERR" &
+        printf '%s\\n' "$!" >"$ZAP_TEST_AGENT_PID_FILE"
         printf 'terminal_42\\n'
         ;;
     dump-screen)
@@ -159,15 +168,22 @@ case "${2:-}" in
         printf '%s' "${!#}" >"$ZAP_TEST_WRITE_CHARS_LOG"
         ;;
 esac
-""",
+        """,
             encoding="utf-8",
         )
         zellij.chmod(0o755)
+        self.write_agent_script()
 
     def tearDown(self):
+        if self.agent_pid_file.exists():
+            try:
+                pid = int(self.agent_pid_file.read_text(encoding="utf-8").strip())
+                os.kill(pid, 15)
+            except (ValueError, ProcessLookupError):
+                pass
         self.temp_dir.cleanup()
 
-    def run_new_pane(self, prompt):
+    def run_new_pane(self, prompt="", cwd=ROOT, **overrides):
         environment = os.environ.copy()
         environment.update(
             {
@@ -178,16 +194,42 @@ esac
                 "ZAP_AGENT_CMD": "test-agent",
                 "ZAP_READY_MARK": "READY",
                 "ZAP_TEST_WRITE_CHARS_LOG": str(self.write_chars_log),
+                "ZAP_TEST_AGENT_OUTPUT": str(self.agent_output),
+                "ZAP_TEST_AGENT_PID_FILE": str(self.agent_pid_file),
+                "ZAP_TEST_AGENT_STDOUT": str(self.temp_path / "agent-stdout.txt"),
+                "ZAP_TEST_AGENT_STDERR": str(self.temp_path / "agent-stderr.txt"),
                 "ZELLIJ_PANE_ID": "",
             }
         )
+        environment.pop("ZAP_AGENT_INIT", None)
+        environment.update(overrides)
         return subprocess.run(
-            ["bash", str(NEW_PANE_SCRIPT), "right", str(ROOT), prompt],
+            ["bash", str(NEW_PANE_SCRIPT), "right", str(cwd), prompt],
             text=True,
             capture_output=True,
             env=environment,
             check=False,
         )
+
+    def wait_for_agent_output(self):
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if self.agent_output.exists():
+                return self.agent_output.read_text(encoding="utf-8")
+            time.sleep(0.02)
+        self.fail("agent did not write its output")
+
+    def write_agent_script(self):
+        agent = self.bin_dir / "test-agent"
+        agent.write_text(
+            """#!/usr/bin/env bash
+printf 'value=%s\\n' "${INIT_VALUE-unset}" >"$ZAP_TEST_AGENT_OUTPUT"
+while :; do sleep 1; done
+""",
+            encoding="utf-8",
+        )
+        agent.chmod(0o755)
+        return agent
 
     def test_long_initial_prompt_is_retained_in_system_temp_directory(self):
         result = self.run_new_pane("x" * 2001)
@@ -208,6 +250,72 @@ esac
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(list(self.temp_path.glob("zellij-agent-init-*.md")), [])
         self.assertEqual(self.write_chars_log.read_text(encoding="utf-8"), "small task")
+
+    def test_agent_init_file_is_sourced_relative_to_target_cwd(self):
+        init_file = self.temp_path / "agent-init.sh"
+        init_file.write_text("export INIT_VALUE=from-init\n", encoding="utf-8")
+
+        result = self.run_new_pane(
+            cwd=self.temp_path,
+            ZAP_AGENT_INIT="agent-init.sh",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.wait_for_agent_output(), "value=from-init\n")
+
+    def test_agent_env_overrides_init_file_for_agent_command(self):
+        init_file = self.temp_path / "agent-init.sh"
+        init_file.write_text("export INIT_VALUE=from-init\n", encoding="utf-8")
+
+        result = self.run_new_pane(
+            ZAP_AGENT_INIT=str(init_file),
+            ZAP_AGENT_ENV="INIT_VALUE=from-override",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.wait_for_agent_output(), "value=from-override\n")
+
+    def test_agent_command_can_call_function_from_init_file(self):
+        init_file = self.temp_path / "agent-init.sh"
+        init_file.write_text(
+            """start-test-agent() {
+    printf 'value=%s\\n' "${INIT_VALUE-unset}" >"$ZAP_TEST_AGENT_OUTPUT"
+    while :; do sleep 1; done
+}
+export INIT_VALUE=from-function-init
+""",
+            encoding="utf-8",
+        )
+
+        result = self.run_new_pane(
+            ZAP_AGENT_INIT=str(init_file),
+            ZAP_AGENT_CMD="start-test-agent",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.wait_for_agent_output(), "value=from-function-init\n")
+
+    def test_missing_agent_init_file_fails_before_creating_pane(self):
+        result = self.run_new_pane(
+            cwd=self.temp_path,
+            ZAP_AGENT_INIT="missing-init.sh",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("agent init file", result.stderr)
+        self.assertIn(str(self.temp_path / "missing-init.sh"), result.stderr)
+
+    def test_agent_init_failure_reports_init_status(self):
+        init_file = self.temp_path / "agent-init.sh"
+        init_file.write_text("return 7\n", encoding="utf-8")
+
+        result = self.run_new_pane(ZAP_AGENT_INIT=str(init_file))
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            f"agent init file '{init_file}' failed with status 7",
+            result.stderr,
+        )
 
 
 if __name__ == "__main__":
