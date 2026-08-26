@@ -16,11 +16,10 @@ below is authoritative. Do not inspect the script unless it must be changed.
 
 ## Two-Stage Launch
 
-1. Run the script once with the requested direction, working directory, and
-   optional initial prompt.
+1. Run the script once with the working directory and optional initial prompt.
 
    ```bash
-   bash scripts/new-pane.sh [direction] [cwd] [initial-prompt]
+   bash scripts/new-pane.sh [cwd] [initial-prompt]
    ```
 
    The script automatically inherits the current process environment. Treat
@@ -55,7 +54,7 @@ delegation workflow below when the sender must receive a result.
 ZAP_AGENT_CMD="codex --full-auto" \
 ZAP_AGENT_INIT="$HOME/.config/my-agent/init.sh" \
 ZAP_READY_MARK="›" \
-bash scripts/new-pane.sh right /path/to/project "Review the auth module"
+bash scripts/new-pane.sh /path/to/project "Review the auth module"
 ```
 
 ## Script Interface
@@ -63,14 +62,17 @@ bash scripts/new-pane.sh right /path/to/project "Review the auth module"
 ### Arguments
 
 ```bash
-bash scripts/new-pane.sh [direction] [cwd] [initial-prompt]
+bash scripts/new-pane.sh [cwd] [initial-prompt]
 ```
 
-- `direction`: `right` (default) or `down`; `left` and `up` fall back to
-  `right`.
-- `cwd`: working directory, defaulting to the current pane's directory.
+- `cwd`: working directory, defaulting to the current pane's directory. Pass
+  an empty string to use that default when supplying a positional
+  `initial-prompt`.
 - `initial-prompt`: optional task to send after the Agent displays its ready
   mark. It overrides `ZAP_INITIAL_PROMPT`.
+
+Tiled Agent panes use zellij's automatic placement. The launch interface has no
+directional placement; use `ZAP_FLOATING=1` when the pane must be floating.
 
 ### Environment
 

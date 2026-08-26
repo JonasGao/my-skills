@@ -134,6 +134,7 @@ class NewPaneTaskDocumentTests(unittest.TestCase):
         self.bin_dir = self.temp_path / "bin"
         self.bin_dir.mkdir()
         self.write_chars_log = self.temp_path / "write-chars.txt"
+        self.new_pane_args_log = self.temp_path / "new-pane-args.txt"
         self.agent_output = self.temp_path / "agent-output.txt"
         self.agent_pid_file = self.temp_path / "agent-pid.txt"
         zellij = self.bin_dir / "zellij"
@@ -145,6 +146,7 @@ case "${2:-}" in
         printf '[{"id": 1, "tab_id": 7, "is_focused": true}]\\n'
         ;;
     new-pane)
+        printf '%s\\n' "$@" >"$ZAP_TEST_NEW_PANE_ARGS_LOG"
         while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
             shift
         done
@@ -194,6 +196,7 @@ esac
                 "ZAP_AGENT_CMD": "test-agent",
                 "ZAP_READY_MARK": "READY",
                 "ZAP_TEST_WRITE_CHARS_LOG": str(self.write_chars_log),
+                "ZAP_TEST_NEW_PANE_ARGS_LOG": str(self.new_pane_args_log),
                 "ZAP_TEST_AGENT_OUTPUT": str(self.agent_output),
                 "ZAP_TEST_AGENT_PID_FILE": str(self.agent_pid_file),
                 "ZAP_TEST_AGENT_STDOUT": str(self.temp_path / "agent-stdout.txt"),
@@ -204,12 +207,15 @@ esac
         environment.pop("ZAP_AGENT_INIT", None)
         environment.update(overrides)
         return subprocess.run(
-            ["bash", str(NEW_PANE_SCRIPT), "right", str(cwd), prompt],
+            ["bash", str(NEW_PANE_SCRIPT), str(cwd), prompt],
             text=True,
             capture_output=True,
             env=environment,
             check=False,
         )
+
+    def new_pane_arguments(self):
+        return self.new_pane_args_log.read_text(encoding="utf-8").splitlines()
 
     def wait_for_agent_output(self):
         deadline = time.monotonic() + 3
@@ -230,6 +236,55 @@ while :; do sleep 1; done
         )
         agent.chmod(0o755)
         return agent
+
+    def test_tiled_pane_uses_automatic_placement(self):
+        result = self.run_new_pane(ZAP_DEBUG="1")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = self.new_pane_arguments()
+        self.assertNotIn("--direction", arguments)
+        self.assertNotIn("--floating", arguments)
+        self.assertIn("placement=automatic-tiled", result.stderr)
+        self.assertNotIn("direction=", result.stderr)
+
+    def test_floating_pane_remains_explicit(self):
+        result = self.run_new_pane(ZAP_FLOATING="1", ZAP_DEBUG="1")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = self.new_pane_arguments()
+        self.assertIn("--floating", arguments)
+        self.assertNotIn("--direction", arguments)
+        self.assertIn("placement=floating", result.stderr)
+
+    def test_removed_direction_argument_fails_before_configuration_check(self):
+        environment = os.environ.copy()
+        environment["PATH"] = f"{self.bin_dir}{os.pathsep}{environment['PATH']}"
+        environment.pop("ZAP_AGENT_CMD", None)
+        environment.pop("ZAP_INITIAL_PROMPT", None)
+
+        for direction in ("right", "down", "left", "up"):
+            with self.subTest(direction=direction):
+                result = subprocess.run(
+                    ["bash", str(NEW_PANE_SCRIPT), direction, str(ROOT)],
+                    text=True,
+                    capture_output=True,
+                    env=environment,
+                    check=False,
+                )
+
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(
+                    f"START_FAILED: direction argument '{direction}' was removed; "
+                    "use new-pane.sh [cwd] [initial-prompt]; tiled panes use "
+                    "automatic placement",
+                    result.stderr,
+                )
+                self.assertNotIn("ACTION_REQUIRED", result.stderr)
+
+    def test_empty_cwd_uses_current_directory(self):
+        result = self.run_new_pane(cwd="")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_long_initial_prompt_is_retained_in_system_temp_directory(self):
         result = self.run_new_pane("x" * 2001)

@@ -13,14 +13,15 @@ the string format. Scripts in this skill normalize both.
 ## Create a new pane
 
 ```bash
-zellij action new-pane --direction right --cwd /path/to/dir
+zellij action new-pane --cwd /path/to/dir
 zellij action new-pane --floating --cwd /path/to/dir
 ```
 
-Direction: `right`, `down` (zellij only supports these two). The new pane
-becomes focused. `new-pane` prints the created pane ID to stdout (e.g.
-`terminal_42`) — always capture this output rather than inferring from
-`list-panes` (floating panes don't appear there).
+The Agent launcher leaves tiled placement to zellij so the same command works
+with attached and detached sessions. Floating placement remains explicit. The
+new pane becomes focused when a client is attached. `new-pane` prints the
+created pane ID to stdout (e.g. `terminal_42`) — always capture this output
+rather than inferring from `list-panes` (floating panes don't appear there).
 
 ## List panes
 

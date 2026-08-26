@@ -9,6 +9,11 @@ distinguishes the generic agent runtime from any particular agent product.
 A zellij pane whose primary process is an interactive coding agent.
 _Avoid_: Claude pane, worker pane
 
+**Agent pane placement**:
+The presentation of a new Agent pane. It is either automatically tiled by
+zellij or explicitly floating; directional placement is not part of the model.
+_Avoid_: pane direction, directional pane
+
 **Agent command**:
 The explicit command that starts the coding agent in an Agent pane.
 _Avoid_: Claude command

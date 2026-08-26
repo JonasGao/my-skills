@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Create a new zellij pane and start a configured coding agent.
-# Usage: new-pane.sh [direction] [cwd] [initial-prompt]
-#   direction:      right | down | left | up (default: right; left/up
-#                   fall back to right because zellij only supports right/down)
-#   cwd:            working directory (default: current pane's cwd)
+# Usage: new-pane.sh [cwd] [initial-prompt]
+#   cwd:            working directory (default: current pane's cwd; an empty
+#                   value also selects the current pane's cwd)
 #   initial-prompt: optional task to relay after the agent shows its ready mark
 # Outputs the new pane ID (e.g. terminal_42) on success.
 #
@@ -11,7 +10,7 @@
 #   ZAP_AGENT_CMD       required command that starts the coding agent
 #   ZAP_AGENT_ENV       optional environment assignments prepended to the command
 #   ZAP_AGENT_INIT      optional shell file sourced before the agent command
-#   ZAP_INITIAL_PROMPT  fallback initial prompt if not given as the third argument
+#   ZAP_INITIAL_PROMPT  fallback initial prompt if not given as the second argument
 #   ZAP_FLOATING        set to 1 to create a floating pane
 #   ZAP_READY_MARK      required literal mark to wait for when relaying a prompt
 #   ZAP_READY_TIMEOUT   prompt-ready timeout in seconds (default: 30)
@@ -164,9 +163,8 @@ print_action_required_and_exit() {
 
 # Arguments and configuration are collected before checking zellij so a missing
 # command always yields an actionable diagnostic for the calling agent.
-DIRECTION="${1:-right}"
-CWD="${2:-$(pwd)}"
-INITIAL_PROMPT="${3:-${ZAP_INITIAL_PROMPT:-}}"
+CWD="${1:-$(pwd)}"
+INITIAL_PROMPT="${2:-${ZAP_INITIAL_PROMPT:-}}"
 AGENT_CMD="${ZAP_AGENT_CMD:-}"
 AGENT_ENV="${ZAP_AGENT_ENV:-}"
 AGENT_INIT="${ZAP_AGENT_INIT:-}"
@@ -181,16 +179,17 @@ AGENT_START_EXIT=""
 
 trap cleanup_startup_files EXIT
 
-print_action_required_and_exit
-
-case "$DIRECTION" in
-    right|down) ;;
-    left|up) DIRECTION="right" ;;
-    *) emit_start_failed "invalid direction '$DIRECTION'; use right, down, left, or up" ;;
+case "${1:-}" in
+    right|down|left|up)
+        emit_start_failed "direction argument '${1}' was removed; use new-pane.sh [cwd] [initial-prompt]; tiled panes use automatic placement"
+        ;;
 esac
 
+print_action_required_and_exit
+
 case "$FLOATING" in
-    0|1) ;;
+    0) PLACEMENT="automatic-tiled" ;;
+    1) PLACEMENT="floating" ;;
     *) emit_start_failed "ZAP_FLOATING must be 0 or 1" ;;
 esac
 
@@ -226,7 +225,7 @@ if [ -n "$AGENT_INIT" ]; then
         emit_start_failed "agent init file '$AGENT_INIT_FILE' is not readable"
     fi
 fi
-debug "launch configuration validated: floating=${FLOATING} prompt_present=$([ -n "$INITIAL_PROMPT" ] && printf 1 || printf 0) agent_env_present=$([ -n "$AGENT_ENV" ] && printf 1 || printf 0) agent_init_present=$([ -n "$AGENT_INIT_FILE" ] && printf 1 || printf 0) ready_mark_present=$([ -n "$READY_MARK" ] && printf 1 || printf 0) ready_timeout_seconds=${READY_TIMEOUT}"
+debug "launch configuration validated: placement=${PLACEMENT} prompt_present=$([ -n "$INITIAL_PROMPT" ] && printf 1 || printf 0) agent_env_present=$([ -n "$AGENT_ENV" ] && printf 1 || printf 0) agent_init_present=$([ -n "$AGENT_INIT_FILE" ] && printf 1 || printf 0) ready_mark_present=$([ -n "$READY_MARK" ] && printf 1 || printf 0) ready_timeout_seconds=${READY_TIMEOUT}"
 
 CURRENT_TAB_ID=$(get_current_tab_id)
 if [ -z "$CURRENT_TAB_ID" ] || [ "$CURRENT_TAB_ID" = "null" ]; then
@@ -256,12 +255,10 @@ rm -f "$STARTUP_STATUS_FILE"
 launch_args=(action new-pane --tab-id "$CURRENT_TAB_ID" --cwd "$CWD_ABS")
 if [ "$FLOATING" = "1" ]; then
     launch_args+=(--floating)
-else
-    launch_args+=(--direction "$DIRECTION")
 fi
 
 set +e
-debug "pane creation started: direction=${DIRECTION} floating=${FLOATING}"
+debug "pane creation started: placement=${PLACEMENT}"
 zellij "${launch_args[@]}" -- \
     bash -c '
         startup_status="$1"
