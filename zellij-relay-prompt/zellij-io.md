@@ -2,7 +2,7 @@
 
 Loaded on demand when you need the raw command semantics behind the relay.
 For pane-creation commands (new-pane, rename, close), see
-`zellij-agent-pane/zellij-io.md`.
+`zellij-pane-agent/zellij-io.md`.
 
 ## Pane ID formats
 
@@ -17,8 +17,8 @@ zellij action list-panes --json
 ```
 
 Each pane has `id`, `title`, `pane_command`, `pane_cwd`, `is_plugin`, `is_focused`.
-`pane_command` is the reliable way to tell a coding-agent pane (`claude`, `codex`,
-`opencode`, ...) from a plain shell (`/bin/bash`); titles are unreliable (task
+`pane_command` is the reliable way to tell a coding agent running in a pane
+(`claude`, `codex`, `opencode`, ...) from a plain shell (`/bin/bash`); titles are unreliable (task
 text / spinner / app name).
 
 ## Dump screen

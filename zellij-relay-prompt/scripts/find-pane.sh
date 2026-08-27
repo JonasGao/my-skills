@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# List other coding-agent panes in this zellij session.
+# List other pane agents in this zellij session.
 # Usage: find-pane.sh [self-pane-id]   (default: $ZELLIJ_PANE_ID)
 # Output, one per line: <pane-id>\t<title>\t<cwd>
-# Empty output means no other coding-agent panes were found.
+# Empty output means no other pane agents were found.
 #
 # A "coding agent" is any interactive AI coding TUI: Claude Code, Codex,
 # OpenCode, Aider, Gemini CLI, etc. Discovery matches pane_command against a

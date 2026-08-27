@@ -286,7 +286,7 @@ rm -f "$launch_stdout"
 debug "pane creation finished: zellij_exit=${launch_status} pane_id_returned=$([ -n "$launch_output" ] && printf 1 || printf 0)"
 
 if [ "$launch_status" -ne 0 ]; then
-    echo "START_FAILED: zellij could not create the Agent pane (launcher exit ${launch_status})." >&2
+    echo "START_FAILED: zellij could not create the pane agent (launcher exit ${launch_status})." >&2
     if [ -s "$launch_stderr" ]; then
         echo "zellij diagnostics:" >&2
         tail -n 8 "$launch_stderr" >&2
@@ -333,7 +333,7 @@ if [ -z "$INITIAL_PROMPT" ]; then
 fi
 
 if ! wait_for_agent_ready "$new_id"; then
-    emit_start_failed "agent pane $new_id started but did not show ZAP_READY_MARK within ${READY_TIMEOUT}s; the initial prompt was not sent"
+    emit_start_failed "pane agent $new_id started but did not show ZAP_READY_MARK within ${READY_TIMEOUT}s; the initial prompt was not sent"
 fi
 printf 'Agent ready in pane %s.\n' "$new_id"
 debug "prompt delivery started: pane=${new_id} prompt_bytes=$(printf '%s' "$INITIAL_PROMPT" | wc -c)"

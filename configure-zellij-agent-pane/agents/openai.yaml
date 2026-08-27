@@ -1,7 +1,0 @@
-interface:
-  display_name: "Configure Zellij Agent Pane"
-  short_description: "Collect zellij Agent pane environment settings"
-  default_prompt: "Use $configure-zellij-agent-pane to collect my Agent pane configuration."
-
-policy:
-  allow_implicit_invocation: false

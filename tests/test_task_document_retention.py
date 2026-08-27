@@ -20,7 +20,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 RELAY_SCRIPT = ROOT / "zellij-relay-prompt" / "scripts" / "relay.py"
-NEW_PANE_SCRIPT = ROOT / "zellij-agent-pane" / "scripts" / "new-pane.sh"
+NEW_PANE_SCRIPT = ROOT / "zellij-pane-agent" / "scripts" / "new-pane.sh"
 
 
 def load_relay_module():

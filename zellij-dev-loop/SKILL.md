@@ -19,10 +19,10 @@ focus on its strength.
 
 ### 1. Spawn the developer agent
 
-Invoke the `zellij-agent-pane` skill to create a new pane:
+Invoke the `zellij-pane-agent` skill to create a new pane agent:
 
 ```
-Use zellij-agent-pane to open a new pane in this directory.
+Use zellij-pane-agent to open a new pane agent in this directory.
 ```
 
 The skill creates the pane and starts the Agent command selected by the user. If the command is absent, its script returns an actionable diagnostic; ask the user for the listed values, then retry the script once. Save the new pane ID (e.g., `terminal_42`) for relaying prompts.
@@ -129,7 +129,7 @@ If no longer needed, close the developer pane using `zellij action close-pane`.
 **User**: "Create a REST API for a todo list. You review, let another agent implement."
 
 **You (reviewer)**:
-1. Invoke `zellij-agent-pane` → creates pane `terminal_15`
+1. Invoke `zellij-pane-agent` → creates pane agent `terminal_15`
 2. Create a Reply route, start its waiter, and invoke `zellij-relay-prompt` → sends task "Implement a REST API for a todo list with CRUD endpoints..."
 3. The waiter returns a `succeeded` JSON result with the API summary
 4. Invoke `/code-review` on the changes → find 3 issues
@@ -152,7 +152,7 @@ If no longer needed, close the developer pane using `zellij action close-pane`.
 
 This skill orchestrates other skills:
 
-- **zellij-agent-pane**: Creates the developer pane (invoke via Skill tool)
+- **zellij-pane-agent**: Creates the developer pane agent (invoke via Skill tool)
 - **zellij-relay-prompt**: Relays prompts to the developer (invoke via Skill tool)
 - **code-review**: Reviews implemented code (invoke via `/code-review`)
 

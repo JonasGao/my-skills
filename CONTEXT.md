@@ -5,17 +5,26 @@ distinguishes the generic agent runtime from any particular agent product.
 
 ## Language
 
-**Agent pane**:
-A zellij pane whose primary process is an interactive coding agent.
-_Avoid_: Claude pane, worker pane
+**Pane agent**:
+An independently running coding Agent launched in a zellij pane to perform
+delegated work. It may use a different Agent product or session from the
+delegating Agent; unlike a subagent, it is a separate runtime.
+_Avoid_: Agent pane, agent pane, Claude pane, worker pane
 
-**Agent pane placement**:
-The presentation of a new Agent pane. It is either automatically tiled by
-zellij or explicitly floating; directional placement is not part of the model.
-_Avoid_: pane direction, directional pane
+**Subagent**:
+An Agent delegated within the same Agent session or tool runtime. It is an
+independent task executor within that session, whereas a pane agent is a
+separate zellij-launched runtime.
+_Avoid_: pane agent when referring to same-session delegation
+
+**Pane agent placement**:
+The presentation of a new pane agent's zellij pane. It is either automatically
+tiled by zellij or explicitly floating; directional placement is not part of
+the model.
+_Avoid_: Agent pane placement, pane direction, directional pane
 
 **Agent command**:
-The explicit command that starts the coding agent in an Agent pane.
+The explicit command that starts the coding agent in a pane agent.
 _Avoid_: Claude command
 
 **Agent init file**:
@@ -26,11 +35,11 @@ _Avoid_: bashrc, shell profile
 
 **Launch diagnostic**:
 An actionable result from the pane-launch script that states whether it can
-start an Agent pane and what input is needed when it cannot.
+start a pane agent and what input is needed when it cannot.
 _Avoid_: generic error, setup hint
 
 **Launch configuration**:
-The user-supplied environment values used to create an Agent pane, including
+The user-supplied environment values used to create a pane agent, including
 both reusable Agent settings and optional one-time task settings.
 _Avoid_: setup script, automatic configuration
 
@@ -42,7 +51,7 @@ the sending side.
 _Avoid_: completion notification, callback, pane input
 
 **Delegation request**:
-One task sent from a sending Agent to a receiving Agent pane and identified by
+One task sent from a sending Agent to a receiving pane agent and identified by
 an opaque request ID. It can have at most one Terminal status, and the first
 successfully recorded Terminal status is authoritative. The sending Agent can
 cancel it at any point before that status exists.
@@ -68,7 +77,7 @@ _Avoid_: polling loop, daemon, scheduler
 The explicit `succeeded`, `failed`, `cancelled`, or `timed_out` outcome of a
 Delegation request. The default Reply waiter has no deadline, so `timed_out`
 is only possible when the sender explicitly configures one; a missing or
-unreachable Agent pane is not itself a terminal status.
+unreachable pane agent is not itself a terminal status.
 _Avoid_: done, completion notification
 
 **Fire-and-forget delegation**:

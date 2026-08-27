@@ -1,6 +1,6 @@
-# Use Automatic Agent Pane Placement
+# Use Automatic Pane Placement for Pane Agents
 
-Agent pane launches use zellij's automatic tiled placement, while floating
+Pane agent launches use zellij's automatic tiled placement, while floating
 placement remains an explicit launch configuration. We removed directional
 placement from the launch interface because zellij can return a pane ID without
 registering the pane when a directional launch targets a detached session;
