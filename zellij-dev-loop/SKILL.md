@@ -6,7 +6,7 @@ description: "Create a developer agent in a new pane while you act as reviewer i
 # Developer-Reviewer Loop
 
 Create a parallel agent to implement code while you review it, iterating through a
-review-fix cycle until the code is complete and correct.
+review-fix cycle until the code is complete, reviewed, and its pane is released.
 
 **Role separation:**
 - **You (reviewer)**: Review code, identify issues, send feedback. Do NOT write code.
@@ -19,13 +19,14 @@ focus on its strength.
 
 ### 1. Spawn the developer agent
 
-Invoke the `zellij-pane-agent` skill to create a new pane agent:
+Every new Developer-reviewer loop starts with a fresh Loop-owned pane agent.
+Invoke the `zellij-pane-agent` skill to create it:
 
 ```
 Use zellij-pane-agent to open a new pane agent in this directory.
 ```
 
-The skill creates the pane and starts the Agent command selected by the user. If the command is absent, its script returns an actionable diagnostic; ask the user for the listed values, then retry the script once. Save the new pane ID (e.g., `terminal_42`) for relaying prompts.
+The skill creates the pane and starts the Agent command selected by the user. If the command is absent, its script returns an actionable diagnostic; ask the user for the listed values, then retry the script once. Save the new pane ID (e.g., `terminal_42`) as the ID owned by this loop. Use that exact ID for relaying and teardown.
 
 Wait for the session to load (~5-10 seconds) before sending tasks.
 
@@ -97,14 +98,55 @@ Repeat steps 3-5 until the review finds no issues:
 1. Consume the Reply waiter result
 2. Review the fixes
 3. If issues remain → send fix request
-4. If clean → approve and close the loop
+4. If clean and the required verification passed → teardown and deliver
 
-When code is satisfactory, inform the user: "The implementation is complete and reviewed.
-No issues found."
+If a `failed` result can still be repaired, keep the pane and send a new tracked
+fix request. A failure ends the loop only when the effort is blocked or stopped.
 
-### 7. (Optional) Close the developer pane
+### 7. Teardown the loop
 
-If no longer needed, close the developer pane using `zellij action close-pane`.
+Always teardown the Loop-owned pane agent when the work is deliverable, the user
+cancels or stops it, or the effort is blocked and this loop is ending. Work is
+deliverable when it meets the requested scope, the final review is clean, and
+the required verification has passed. Do not wait for an additional user
+confirmation.
+
+Use only the pane ID saved in step 1:
+
+```bash
+bash scripts/close-pane.sh <developer-pane-id>
+```
+
+Run teardown in this order:
+
+1. Invoke `close-pane.sh` once.
+2. If a Delegation request is still active, invoke its generated
+   `cancel-reply.py` command. If a reply won the race, its existing Terminal
+   status remains authoritative.
+3. Consume the Reply waiter result so no waiter remains active.
+4. Report `CLOSED` or `CLOSE_FAILED` with the pane ID. A close failure does not
+   change whether completed code is deliverable, but it must be visible to the
+   user.
+
+On successful delivery, close the pane before the final user response. Once
+teardown starts, retire its pane ID even if closing fails. A later development
+or fix request starts a new loop and invokes `zellij-pane-agent` for a fresh
+pane. Never rediscover or reuse a pane from a completed or terminated loop.
+
+#### Close script interface
+
+```bash
+bash scripts/close-pane.sh <terminal-pane-id>
+```
+
+- Accepts a numeric ID or `terminal_<number>` returned by pane creation.
+- Refuses to close the current reviewer pane identified by `$ZELLIJ_PANE_ID`.
+- Calls `zellij action close-pane` for that exact ID without discovering other
+  panes, terminating the pane agent process with its pane. Zellij treats an
+  absent pane as a successful no-op.
+- Prints `CLOSED: pane=<id>` and exits `0` when the close action succeeds.
+- Prints `CLOSE_FAILED: ...` and exits non-zero for invalid input, self-close,
+  or a zellij error.
 
 ## Best Practices
 
@@ -138,7 +180,9 @@ If no longer needed, close the developer pane using `zellij action close-pane`.
 7. Review fixes → find 1 remaining issue
 8. Create another tracked request and invoke `zellij-relay-prompt` → sends "Fix validation in POST /todos..."
 9. The waiter returns a `succeeded` JSON result
-10. Review → clean. Inform user: "Implementation complete and reviewed."
+10. Review and verification → clean
+11. Invoke `scripts/close-pane.sh terminal_15` → `CLOSED: pane=terminal_15`
+12. Inform user: "Implementation complete and reviewed. Developer pane `terminal_15` closed."
 
 ## When to use this skill
 
@@ -156,4 +200,5 @@ This skill orchestrates other skills:
 - **zellij-relay-prompt**: Relays prompts to the developer (invoke via Skill tool)
 - **code-review**: Reviews implemented code (invoke via `/code-review`)
 
-All coordination happens through skill invocation — do not call the underlying scripts directly.
+Use dependency skills for launch, relay, and review. Use this skill's
+`scripts/close-pane.sh` only for teardown of the pane ID created by this loop.

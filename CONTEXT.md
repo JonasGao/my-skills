@@ -11,6 +11,17 @@ delegated work. It may use a different Agent product or session from the
 delegating Agent; unlike a subagent, it is a separate runtime.
 _Avoid_: Agent pane, agent pane, Claude pane, worker pane
 
+**Developer-reviewer loop**:
+A bounded collaboration cycle in which a reviewer delegates implementation to
+a dedicated pane agent, reviews its work, and ends by delivering, cancelling,
+or terminating the effort and releasing its owned resources.
+_Avoid_: Agent session, review session
+
+**Loop-owned pane agent**:
+The pane agent created exclusively for one Developer-reviewer loop. It belongs
+to that loop and is not reused by a later loop.
+_Avoid_: shared pane agent, reusable developer pane
+
 **Subagent**:
 An Agent delegated within the same Agent session or tool runtime. It is an
 independent task executor within that session, whereas a pane agent is a
