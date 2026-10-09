@@ -1,12 +1,12 @@
 ---
 name: zellij-pane-agent
-description: "Create a new zellij pane and start a configured pane agent in it. Use when the user wants a fresh independent pane agent, asks to spawn an agent in zellij, or delegates work to a new agent session. Do NOT use this for relaying a prompt to an existing pane; use zellij-relay-prompt."
+description: "Create a new zellij pane and start a configured pane-agent in it. Use when the user wants a fresh independent pane-agent, asks to spawn an agent in zellij, or delegates work to a new agent session. Do NOT use this for relaying a prompt to an existing pane; use zellij-relay-prompt."
 ---
 
-# Open a Pane Agent
+# Open a Pane-Agent
 
 Create a new zellij pane through `scripts/new-pane.sh` and start the
-independent pane agent supplied by the user; it has no product-specific
+independent pane-agent supplied by the user; it has no product-specific
 default. A tracked delegation is delivered after the pane exists through
 `zellij-relay-prompt`, so its Reply route and Reply waiter are ready before the
 task is sent.
@@ -71,7 +71,7 @@ bash scripts/new-pane.sh [cwd] [initial-prompt]
 - `initial-prompt`: optional task to send after the Agent displays its ready
   mark. It overrides `ZAP_INITIAL_PROMPT`.
 
-Pane agent launches use zellij's automatic placement. The launch interface has no
+Pane-agent launches use zellij's automatic placement. The launch interface has no
 directional placement; use `ZAP_FLOATING=1` when the pane must be floating.
 
 ### Environment
