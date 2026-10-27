@@ -1,0 +1,53 @@
+{
+  "skill_name": "feishu-notify",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "飞书通知我：构建完成了",
+      "expected_output": "Agent 调用 send.mjs 发送纯文本「构建完成了」到 default 目标，不询问目标名，不读配置文件，不读脚本源码。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "发个飞书卡片到值班群，标题是「告警」，内容是 CPU 95%",
+      "expected_output": "Agent 调用 send.mjs --target 值班群 --card --title 告警 CPU 95%，即卡片消息到指定目标。全程不读脚本源码（信任契约）。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "把当前测试输出（很长）飞书通知我",
+      "expected_output": "Agent 将长文本通过 stdin 管道传给 send.mjs 而不是塞进参数，或分段说明后发送；不截断丢失内容。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "飞书通知我一下（此时用户尚未配置，send 退出码 2）",
+      "expected_output": "Agent 不尝试读取配置文件、不编造凭证，只打印一行让用户在自己的终端运行 configure.mjs 的绝对路径，并说明配好后可重试。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "看下我飞书通知都配了哪些目标？靠谱吗？",
+      "expected_output": "Agent 调用 targets.mjs 列出掩码摘要，再用 targets.mjs --check 验证；全程不出现任何秘钥明文。全程不读脚本源码（信任契约）。",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "send 报「目标不存在：group」，怎么回事？",
+      "expected_output": "Agent 用 targets.mjs 查看现有目标名（掩码输出），指出目标名拼写或缺失，建议用 configure.mjs 添加（打印路径让用户自己跑），不代跑交互配置。",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "用飞书机器人接收我在飞书里回复的消息并执行命令",
+      "expected_output": "Agent 说明 feishu-notify 只发不收（SKILL.md 边界），不假装支持；可建议后续以新技能形式实现双向场景。",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "钉钉上提醒我一下",
+      "expected_output": "不触发 feishu-notify（Do NOT use 边界：非飞书平台），转用钉钉相关能力。",
+      "files": []
+    }
+  ]
+}

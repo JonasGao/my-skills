@@ -1,9 +1,10 @@
-# Zellij Agent Skills
+# Agent Skills
 
-Skills for coordinating interactive coding agents in zellij. The vocabulary
-distinguishes the generic agent runtime from any particular agent product.
+Vocabulary for the skills in this repo. The zellij terms distinguish the
+generic agent runtime from any particular agent product; the Feishu terms
+distinguish the two bot mechanisms by their delivery model.
 
-## Language
+## Zellij pane coordination
 
 **Pane agent**:
 An independently running coding Agent launched in a zellij pane to perform
@@ -95,3 +96,33 @@ _Avoid_: done, completion notification
 An explicitly requested Delegation with no Reply route or Reply waiter; its
 completion cannot trigger work in the sending Agent.
 _Avoid_: untracked delegation, notification-only delegation
+
+## Feishu notification
+
+**Webhook bot**:
+The Feishu group custom bot added to one group chat, identified by a webhook
+URL and an optional signing secret. It can only deliver messages into that
+one group.
+_Avoid_: app bot, custom app
+
+**App bot**:
+The Feishu self-built application bot whose app credentials are exchanged for
+a tenant access token; it can deliver messages to any group or to an
+individual in a private chat.
+_Avoid_: webhook bot, interactive bot
+
+**Notify target**:
+One named recipient configuration in the skill config, pointing at either a
+Webhook bot or an App bot receive id.
+_Avoid_: channel (the ai-subscriptions term), receiver, bot when ambiguous
+
+**Default target**:
+The Notify target used when a send does not name one.
+_Avoid_: fallback target
+
+**Markdown card**:
+The message form used for rich notifications: a card with a plain-text header
+and a single markdown element. Plain `text` messages are the other supported
+form.
+_Avoid_: interactive card, rich text (Feishu `post`), text message when
+referring to the card form

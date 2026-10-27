@@ -1,0 +1,13 @@
+[
+  { "query": "飞书通知我构建完成了", "should_trigger": true },
+  { "query": "发个飞书消息到值班群", "should_trigger": true },
+  { "query": "飞书提醒我今天下午三点开会", "should_trigger": true },
+  { "query": "notify me on Feishu when the deploy finishes", "should_trigger": true },
+  { "query": "send a Feishu message to the ops group with a card", "should_trigger": true },
+  { "query": "把这段日志用飞书卡片发给我", "should_trigger": true },
+  { "query": "钉钉通知我一下", "should_trigger": false },
+  { "query": "发条 Slack 消息给团队", "should_trigger": false },
+  { "query": "帮我配一下飞书机器人（未配置时的初始化引导）", "should_trigger": true },
+  { "query": "用飞书机器人接收我的回复", "should_trigger": false },
+  { "query": "查一下飞书开放平台的文档", "should_trigger": false }
+]
