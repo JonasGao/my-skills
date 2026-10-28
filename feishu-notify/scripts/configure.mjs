@@ -22,33 +22,31 @@
 // 信任契约：secret/appSecret 均掩码输入与显示；除保存到配置文件外不落任何地方。
 
 import readline from "node:readline";
-import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { buildCard, listChats, lookupOpenIdByPhone, sendToTarget } from "./lib/feishu.mjs";
 import { ConfigError, configPath, describeTarget, loadConfig, mask, resolveTarget, saveConfig } from "./lib/shared.mjs";
 
-// Muted output stream so secret input is never echoed (ADR 0004).
-const out = new Writable({
-  write(chunk, encoding, callback) {
-    if (!out.muted) process.stdout.write(chunk, encoding);
-    callback();
-  },
-});
-out.muted = false;
-// 惰性创建：--help 与 TTY 守卫通过后才 attach stdin，否则会挂住进程
+// 秘钥掩码（ADR 0004）：terminal:true 下 readline 处于 raw mode、回显由本进程控制，
+// 覆盖 _writeToOutput 在 muted 时吞掉全部输出。提示语必须经 rl.question 输出——
+// 手动预写再调空提示的 question 会被 readline 的整行重绘擦掉（真实 TTY 下复现过）。
 let rl = null;
+let muted = false;
 
 function startInteractive() {
-  rl = readline.createInterface({ input: process.stdin, output: out, terminal: true });
+  rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  rl._writeToOutput = (s) => {
+    if (!muted) rl.output.write(s);
+  };
 }
 
 async function ask(question, { secret = false, optional = false } = {}) {
   while (true) {
-    out.write(question); // 提示语先落地，再静音，避免连提示一起吞掉
-    out.muted = secret;
-    const answer = (await new Promise((resolve) => rl.question("", resolve))).trim();
-    out.muted = false;
-    if (secret) process.stdout.write("\n");
+    muted = false;
+    const pending = new Promise((resolve) => rl.question(question, resolve));
+    muted = secret; // question() 已同步输出提示语；此后只吞按键回显
+    const answer = (await pending).trim();
+    muted = false;
+    if (secret) process.stdout.write("\n"); // 回车换行也被吞了，补一行
     if (answer || optional) return answer;
     console.log("  不能为空，请重新输入。");
   }
