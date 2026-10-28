@@ -183,3 +183,8 @@ trigger accuracy. Release to the skills home is manual (out of scope).
   im:message.group_msg scope，缺失时报 230027）。据此把「发消息抓取」从单聊
   改为群聊版：拉机器人进群（建议只有你和机器人）发消息，排除机器人自身
   open_id（bot/v3/info）后抓发送者。230027 翻译带 scope 名。
+
+- 2026-10-28 (live test passed): 应用机器人私聊发送端到端实测通过——真实凭证
+  （tmp/env，已 600 且不入库）+ 群聊捕获的 open_id，卡片与纯文本两条均送达
+  用户飞书；发送、抓取、权限链路全部真机验证。私聊发送模式无 bug，
+  无需修复；此前失败项仅"单聊消息抓取"（已改群聊版）。
