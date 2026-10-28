@@ -176,3 +176,10 @@ trigger accuracy. Release to the skills home is manual (out of scope).
   零依赖实现：以私聊基线轮询 REST「新私聊/新消息」，非 WS，不引 SDK）、
   手机号（本地 11 位自动补 +86）或邮箱查询、手动粘贴。新增权限要求
   im:message.p2p_msg:readonly。参考工程的 lookupOpenIdByPhone 相应泛化为 lookupUserId。
+
+- 2026-10-28 (live test correction): 真机实测（机器人「糯糯」）：机器人的单聊会话
+  对 im/v1/chats REST 不可见（发多条私聊后列表仍为 0），im/v1/chats 也不返回
+  chat_type 字段；群聊可见、群消息发送者经 im/v1/messages 列表可取（需
+  im:message.group_msg scope，缺失时报 230027）。据此把「发消息抓取」从单聊
+  改为群聊版：拉机器人进群（建议只有你和机器人）发消息，排除机器人自身
+  open_id（bot/v3/info）后抓发送者。230027 翻译带 scope 名。

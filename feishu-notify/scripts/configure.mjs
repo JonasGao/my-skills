@@ -7,7 +7,7 @@
 // 流程（菜单循环）：
 //   1. 添加目标：群机器人（webhook url + 可选 secret/keyword）或
 //      应用机器人（appId/appSecret + receiveIdType + receiveId，支持
-//      open_id 三种获取：给机器人发消息自动抓取 / 手机号·邮箱查询 / 手动粘贴；
+//      open_id 三种获取：拉机器人进群发消息自动抓取 / 手机号·邮箱查询 / 手动粘贴；
 //      chat_id 支持：列出机器人所在群选择 / 手动粘贴）
 //   2. 编辑已有目标
 //   3. 设置 default 目标
@@ -24,7 +24,7 @@
 
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { buildCard, listChatMessages, listChats, lookupUserId, sendToTarget } from "./lib/feishu.mjs";
+import { buildCard, getBotInfo, listChatMessages, listChats, lookupUserId, sendToTarget } from "./lib/feishu.mjs";
 import { ConfigError, configPath, describeTarget, loadConfig, mask, resolveTarget, saveConfig } from "./lib/shared.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -95,11 +95,10 @@ function normalizePhone(input) {
   return null;
 }
 
-/** 快照机器人各私聊的最新消息 id，作为"新消息"的判定基线。 */
-async function p2pBaseline(appId, appSecret) {
+/** 快照机器人所有可见会话（群）的最新消息 id，作为"新消息"的判定基线。 */
+async function chatBaseline(appId, appSecret) {
   const baseline = new Map();
   for (const c of await listChats(appId, appSecret)) {
-    if (c.chatType !== "p2p") continue;
     const newest = (await listChatMessages(appId, appSecret, c.chatId))[0];
     baseline.set(c.chatId, newest ? newest.messageId : null);
   }
@@ -107,18 +106,26 @@ async function p2pBaseline(appId, appSecret) {
 }
 
 /**
- * 临时接收会话（最长 90 秒）：等用户给机器人发一条私聊消息，抓发送者 open_id。
- * 零依赖实现：以基线轮询"新私聊出现 / 已有私聊来了新消息"（REST），不用 WS。
+ * 临时接收会话（最长 90 秒）：等用户把机器人拉进群并在群里发一条消息，抓发送者
+ * open_id。零依赖实现：基线轮询"新群出现 / 已有群来了新消息"（REST），不用 WS。
+ * 注意：机器人的单聊会话对 REST 不可见，所以只能在群里抓。
  */
-async function captureOpenIdByDirectMessage(appId, appSecret) {
-  let baseline;
+async function captureOpenIdByGroupMessage(appId, appSecret) {
+  let bot;
   try {
-    baseline = await p2pBaseline(appId, appSecret);
+    bot = await getBotInfo(appId, appSecret);
   } catch (err) {
-    console.log(`  无法读取机器人现有会话（${err.message}）。请检查 im:chat 与 im:message.p2p_msg:readonly 权限。`);
+    console.log(`  无法获取机器人信息（${err.message}）。`);
     return null;
   }
-  console.log("请现在在飞书里给这个机器人发一条任意私聊消息（内容不限）。");
+  let baseline;
+  try {
+    baseline = await chatBaseline(appId, appSecret);
+  } catch (err) {
+    console.log(`  无法读取机器人现有会话（${err.message}）。请检查 im:chat 与 im:message.group_msg 权限。`);
+    return null;
+  }
+  console.log(`机器人「${bot.appName}」已就绪。请把它拉进一个群（建议只有你和机器人），然后在群里发一条任意消息。`);
   process.stdout.write("  等待接收");
   const deadline = Date.now() + 90_000;
   try {
@@ -126,10 +133,10 @@ async function captureOpenIdByDirectMessage(appId, appSecret) {
       await sleep(3_000);
       process.stdout.write(".");
       for (const c of await listChats(appId, appSecret)) {
-        if (c.chatType !== "p2p") continue;
         const isNewChat = !baseline.has(c.chatId);
         const newest = (await listChatMessages(appId, appSecret, c.chatId))[0];
-        const hasNew = newest && newest.senderOpenId && (isNewChat || newest.messageId !== baseline.get(c.chatId));
+        const fromUser = newest?.senderOpenId && newest.senderOpenId !== bot.openId;
+        const hasNew = fromUser && (isNewChat || newest.messageId !== baseline.get(c.chatId));
         if (hasNew) {
           process.stdout.write("\n");
           return { openId: newest.senderOpenId, from: c.name };
@@ -148,7 +155,7 @@ async function captureOpenIdByDirectMessage(appId, appSecret) {
 
 async function askAppTarget(existing) {
   console.log("应用机器人：在 open.feishu.cn 创建企业自建应用，开启机器人能力，");
-  console.log("并开通权限：im:message:send_as_bot（发消息）、im:chat（列群）、im:message.p2p_msg:readonly（读单聊消息，发消息抓 open_id 用）、contact:user.id:readonly（手机号/邮箱查 ID）。");
+  console.log("并开通权限：im:message:send_as_bot（发消息）、im:chat（列群）、im:message.group_msg（读群消息，抓 open_id 用）、contact:user.id:readonly（手机号/邮箱查 ID）。");
   const appId = await ask("appId（cli_ 开头）");
   const appSecret = await ask("appSecret（输入不回显）", { secret: true });
 
@@ -161,12 +168,12 @@ async function askAppTarget(existing) {
   if (kind === "open_id") {
     while (!receiveId) {
         const method = await askChoice("open_id 获取方式：", [
-          { label: "给机器人发一条消息，自动抓取（推荐）", value: "capture" },
+          { label: "拉机器人进群发一条消息，自动抓取（推荐）", value: "capture" },
           { label: "手机号或邮箱查询", value: "lookup" },
           { label: "手动粘贴 open_id", value: "manual" },
         ]);
         if (method === "capture") {
-          const hit = await captureOpenIdByDirectMessage(appId, appSecret);
+          const hit = await captureOpenIdByGroupMessage(appId, appSecret);
           if (hit) {
             console.log(`  收到 ${hit.from ?? "私聊"} 的消息，open_id：${hit.openId}`);
             receiveId = hit.openId;
@@ -197,7 +204,7 @@ async function askAppTarget(existing) {
     } else {
       let picked = false;
       try {
-        const chats = (await listChats(appId, appSecret)).filter((c) => c.chatType !== "p2p");
+        const chats = await listChats(appId, appSecret);
         if (chats.length) {
           chats.forEach((c, i) => console.log(`  ${i + 1}) ${c.name}`));
           const pick = await ask("选择群（输入编号；直接回车跳过）", { optional: true });

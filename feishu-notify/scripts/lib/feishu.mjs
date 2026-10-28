@@ -38,6 +38,7 @@ function translate(code, msg) {
   if (/receive.?id/i.test(m)) return `飞书错误 ${code ?? "?"}：接收方 ID 无效，请检查 receiveId`;
   if (/key ?word/i.test(m)) return `飞书错误：关键词不匹配（${m}）`;
   if (/sign/i.test(m)) return `飞书错误：签名不匹配（${m}）`;
+  if (code === 230027) return `飞书错误 230027：缺少必要权限（${m}），请到开放平台开通该 scope 并发布新版本`;
   if (code in CODES) return `飞书错误 ${code}：${CODES[code]}`;
   return `飞书错误 ${code ?? "?"}：${m || "未知错误"}`;
 }
@@ -156,7 +157,20 @@ export async function listChats(appId, appSecret) {
     chats.push(...(data.data?.items ?? []));
     pageToken = data.data?.page_token ?? "";
   } while (pageToken);
-  return chats.map((c) => ({ chatId: c.chat_id, chatType: c.chat_type, name: c.name ?? "(未命名)" }));
+  // 实测：该端点只返回群，且不含 chat_type 字段；机器人的单聊对 REST 不可见
+  return chats.map((c) => ({ chatId: c.chat_id, name: c.name ?? "(未命名群)" }));
+}
+
+/** 机器人自身信息（名称 + open_id；抓取时用于排除机器人自己发的消息）。 */
+export async function getBotInfo(appId, appSecret) {
+  const token = await getTenantToken(appId, appSecret);
+  const { res, data } = await feishuJson(`${OPEN}/bot/v3/info`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (data.code !== 0 || !data.bot?.open_id) {
+    throw new FeishuError(data.code ?? res.status, data.msg || "获取机器人信息失败");
+  }
+  return { openId: data.bot.open_id, appName: data.bot.app_name ?? "(未命名机器人)" };
 }
 
 /** 列出会话内消息（新→旧），只取 message_id 与发送者（open_id 发现用）。 */
