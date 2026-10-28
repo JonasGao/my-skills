@@ -7,8 +7,8 @@
 // 流程（菜单循环）：
 //   1. 添加目标：群机器人（webhook url + 可选 secret/keyword）或
 //      应用机器人（appId/appSecret + receiveIdType + receiveId，支持
-//      open_id 三种获取：拉机器人进群发消息自动抓取 / 手机号·邮箱查询 / 手动粘贴；
-//      chat_id 支持：列出机器人所在群选择 / 手动粘贴）
+//      open_id 四种获取：私聊发消息自动抓取（机器人即时回复 open_id，需长连接）/
+//      群发消息抓取 / 手机号·邮箱查询 / 手动粘贴；chat_id：列群选择 / 手动）
 //   2. 编辑已有目标
 //   3. 设置 default 目标
 //   4. 向某目标发测试消息
@@ -25,6 +25,7 @@
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { buildCard, getBotInfo, listChatMessages, listChats, lookupUserId, sendToTarget } from "./lib/feishu.mjs";
+import { listenDirectMessage } from "./lib/longconn.mjs";
 import { ConfigError, configPath, describeTarget, loadConfig, mask, resolveTarget, saveConfig } from "./lib/shared.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -155,7 +156,9 @@ async function captureOpenIdByGroupMessage(appId, appSecret) {
 
 async function askAppTarget(existing) {
   console.log("应用机器人：在 open.feishu.cn 创建企业自建应用，开启机器人能力，");
-  console.log("并开通权限：im:message:send_as_bot（发消息）、im:chat（列群）、im:message.group_msg（读群消息，抓 open_id 用）、contact:user.id:readonly（手机号/邮箱查 ID）。");
+  console.log("并开通权限：im:message:send_as_bot（发消息）、im:chat（列群）、im:message.group_msg（读群消息）、");
+  console.log("im:message.p2p_msg:readonly（私聊抓取）+ 事件订阅方式选「长连接」并订阅 im.message.receive_v1、");
+  console.log("contact:user.id:readonly（手机号/邮箱查 ID）。");
   const appId = await ask("appId（cli_ 开头）");
   const appSecret = await ask("appSecret（输入不回显）", { secret: true });
 
@@ -168,11 +171,18 @@ async function askAppTarget(existing) {
   if (kind === "open_id") {
     while (!receiveId) {
         const method = await askChoice("open_id 获取方式：", [
-          { label: "拉机器人进群发一条消息，自动抓取（推荐）", value: "capture" },
+          { label: "给机器人发一条私聊消息，自动抓取（推荐，需事件订阅=长连接）", value: "dm" },
+          { label: "拉机器人进群发一条消息，自动抓取", value: "capture" },
           { label: "手机号或邮箱查询", value: "lookup" },
           { label: "手动粘贴 open_id", value: "manual" },
         ]);
-        if (method === "capture") {
+        if (method === "dm") {
+          const hit = await listenDirectMessage(appId, appSecret).catch((err) => {
+            console.log(`  私聊抓取不可用（${err.message}）。`);
+            return null;
+          });
+          if (hit) receiveId = hit.openId;
+        } else if (method === "capture") {
           const hit = await captureOpenIdByGroupMessage(appId, appSecret);
           if (hit) {
             console.log(`  收到 ${hit.from ?? "私聊"} 的消息，open_id：${hit.openId}`);

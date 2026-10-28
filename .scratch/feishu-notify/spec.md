@@ -188,3 +188,12 @@ trigger accuracy. Release to the skills home is manual (out of scope).
   （tmp/env，已 600 且不入库）+ 群聊捕获的 open_id，卡片与纯文本两条均送达
   用户飞书；发送、抓取、权限链路全部真机验证。私聊发送模式无 bug，
   无需修复；此前失败项仅"单聊消息抓取"（已改群聊版）。
+
+- 2026-10-28 (DM capture shipped): 补齐私聊抓取——从 @larksuiteoapi/node-sdk
+  1.74.0 逆向事件长连接协议（POST /callback/ws/endpoint {AppID,AppSecret} →
+  预授权 wss URL；pbbp2.Frame 9 字段 protobuf；control/ping + data 事件帧），
+  lib/longconn.mjs 零依赖实现（Node >= 22 内置 WebSocket，连接无需自定义
+  header）。真机验证：私聊消息事件捕获 open_id，且机器人立刻在私聊回复
+  「抓取成功 + open_id」确认。configure 的 open_id 获取顺序调整为
+  私聊抓取（推荐）→ 群聊抓取 → 手机号/邮箱 → 手动。前置配置：事件订阅方式
+  =长连接、订阅 im.message.receive_v1、权限 im:message.p2p_msg:readonly。
