@@ -181,7 +181,7 @@ export async function listenDirectMessage(appId, appSecret, { timeoutMs = 90_000
   try {
     await sendApp(
       { appId, appSecret, receiveIdType: "open_id", receiveId: hit.openId },
-      { text: `✅ 抓取成功\n\nopen_id：${hit.openId}\n\n可直接粘贴到 configure（手动粘贴方式）或配置文件。` }
+      { text: `✅ 抓取成功\n\nopen_id：${hit.openId}` }
     );
     console.log("  已在私聊里回复抓取结果。");
   } catch (err) {
