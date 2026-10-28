@@ -170,3 +170,9 @@ trigger accuracy. Release to the skills home is manual (out of scope).
   守卫（拒绝管道代填）；零目标时 targets 退出 2；移除「唯一目标自动充当 default」
   与 webhook 域名猜测（回归 spec 字面）。保留偏差：`--title` 不带 `--card` 视为
   用法错误（守卫已文档化，静默忽略更糟）。逐块 issue 文件折回本 spec。
+
+- 2026-10-28 (UX + discovery): 配置交互改为问题独立成行、输入行以 "> " 开头、选项逐行排列；
+  open_id 获取扩为三种：给机器人发消息自动抓取（本地临时接收会话，最长 90 秒——
+  零依赖实现：以私聊基线轮询 REST「新私聊/新消息」，非 WS，不引 SDK）、
+  手机号（本地 11 位自动补 +86）或邮箱查询、手动粘贴。新增权限要求
+  im:message.p2p_msg:readonly。参考工程的 lookupOpenIdByPhone 相应泛化为 lookupUserId。

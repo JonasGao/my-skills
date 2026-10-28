@@ -29,7 +29,7 @@ const CODES = {
   230002: "应用权限不足，请检查应用 scope",
   19001: "webhook 地址无效或已被删除，请到群机器人设置重新获取",
   19021: "签名校验失败：secret 不对，或消息缺少关键词",
-  10003: "参数错误，请检查目标字段（如 receiveId）是否正确",
+  10003: "参数错误，请检查 appId / receiveId 等字段是否正确",
   10014: "app_id 不存在，请检查 appId",
 };
 
@@ -156,17 +156,36 @@ export async function listChats(appId, appSecret) {
     chats.push(...(data.data?.items ?? []));
     pageToken = data.data?.page_token ?? "";
   } while (pageToken);
-  return chats.map((c) => ({ chatId: c.chat_id, name: c.name ?? "(未命名群)" }));
+  return chats.map((c) => ({ chatId: c.chat_id, chatType: c.chat_type, name: c.name ?? "(未命名)" }));
 }
 
-/** 手机号（国际格式，如 +8613800138000）→ open_id；查不到返回 null。 */
-export async function lookupOpenIdByPhone(appId, appSecret, phone) {
+/** 列出会话内消息（新→旧），只取 message_id 与发送者（open_id 发现用）。 */
+export async function listChatMessages(appId, appSecret, chatId) {
   const token = await getTenantToken(appId, appSecret);
+  const url = new URL(SEND_URL); // /im/v1/messages 同时也是消息列表端点
+  url.searchParams.set("container_id_type", "chat");
+  url.searchParams.set("container_id", chatId);
+  url.searchParams.set("sort_type", "ByCreateTimeDesc");
+  url.searchParams.set("page_size", "20");
+  const { res, data } = await feishuJson(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (data.code !== 0) throw new FeishuError(data.code, data.msg || `HTTP ${res.status}`);
+  return (data.data?.items ?? []).map((m) => ({
+    messageId: m.message_id,
+    senderOpenId: m.sender?.id_type && m.sender.id_type !== "open_id" ? undefined : m.sender?.id,
+  }));
+}
+
+/** 手机号或邮箱 → 用户 ID（open_id）；查不到返回 null。 */
+export async function lookupUserId(appId, appSecret, { phone, email } = {}) {
+  const token = await getTenantToken(appId, appSecret);
+  const body = {};
+  if (phone) body.mobiles = [phone];
+  if (email) body.emails = [email];
   const { res, data } = await feishuJson(`${LOOKUP_URL}?user_id_type=open_id`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ mobiles: [phone] }),
+    body: JSON.stringify(body),
   });
   if (data.code !== 0) throw new FeishuError(data.code, data.msg || `HTTP ${res.status}`);
-  return data.data?.user_list?.[0]?.user_id ?? null;
+  return data.data?.user_list?.find((u) => u.user_id)?.user_id ?? null;
 }

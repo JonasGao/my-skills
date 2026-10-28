@@ -7,7 +7,8 @@
 // 流程（菜单循环）：
 //   1. 添加目标：群机器人（webhook url + 可选 secret/keyword）或
 //      应用机器人（appId/appSecret + receiveIdType + receiveId，支持
-//      手机号→open_id、列出机器人所在群两种 ID 发现）
+//      open_id 三种获取：给机器人发消息自动抓取 / 手机号·邮箱查询 / 手动粘贴；
+//      chat_id 支持：列出机器人所在群选择 / 手动粘贴）
 //   2. 编辑已有目标
 //   3. 设置 default 目标
 //   4. 向某目标发测试消息
@@ -23,8 +24,10 @@
 
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { buildCard, listChats, lookupOpenIdByPhone, sendToTarget } from "./lib/feishu.mjs";
+import { buildCard, listChatMessages, listChats, lookupUserId, sendToTarget } from "./lib/feishu.mjs";
 import { ConfigError, configPath, describeTarget, loadConfig, mask, resolveTarget, saveConfig } from "./lib/shared.mjs";
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // 秘钥掩码（ADR 0004）：terminal:true 下 readline 处于 raw mode、回显由本进程控制，
 // 覆盖 _writeToOutput 在 muted 时吞掉全部输出。提示语必须经 rl.question 输出——
@@ -39,11 +42,12 @@ function startInteractive() {
   };
 }
 
+// 问题独立成行，输入在下一行以 "> " 开头；选项逐行排列。
 async function ask(question, { secret = false, optional = false } = {}) {
   while (true) {
     muted = false;
-    const pending = new Promise((resolve) => rl.question(question, resolve));
-    muted = secret; // question() 已同步输出提示语；此后只吞按键回显
+    const pending = new Promise((resolve) => rl.question(`${question}\n> `, resolve));
+    muted = secret; // question() 已同步输出提示行；此后只吞按键回显
     const answer = (await pending).trim();
     muted = false;
     if (secret) process.stdout.write("\n"); // 回车换行也被吞了，补一行
@@ -53,12 +57,12 @@ async function ask(question, { secret = false, optional = false } = {}) {
 }
 
 async function askChoice(question, options) {
-  const labels = options.map((o, i) => `${i + 1}) ${o.label}`).join("  ");
+  const menu = options.map((o, i) => `  ${i + 1}) ${o.label}`).join("\n");
   while (true) {
-    const answer = await ask(`${question} ${labels} `);
+    const answer = await ask(`${question}\n${menu}`);
     const n = Number(answer);
     if (Number.isInteger(n) && n >= 1 && n <= options.length) return options[n - 1].value;
-    console.log("  请输入选项编号。");
+    console.log(`  请输入选项编号（1-${options.length}）。`);
   }
 }
 
@@ -75,66 +79,147 @@ function printTargets(config) {
 
 async function askWebhookTarget(existing) {
   console.log("群机器人：在飞书群里「设置 → 群机器人 → 添加机器人 → 自定义机器人」获取 webhook。");
-  const url = await ask("webhook URL: ");
+  const url = await ask("webhook URL");
   console.log("安全设置二选一：签名校验（secret）或自定义关键词（keyword），也可留空（不推荐）。");
-  const secret = await ask("签名 secret（可留空）: ", { secret: true, optional: true });
-  const keyword = await ask("关键词 keyword（可留空）: ", { optional: true });
+  const secret = await ask("签名 secret（输入不回显，可留空）", { secret: true, optional: true });
+  const keyword = await ask("关键词 keyword（可留空）", { optional: true });
   // 保留未知字段：只覆盖本脚本管理的键
   return { ...existing, type: "webhook", url, ...(secret ? { secret } : {}), ...(keyword ? { keyword } : {}) };
 }
 
+/** 手机号归一化：本地 11 位补 +86；+国际格式直通；其余返回 null。 */
+function normalizePhone(input) {
+  const p = input.replace(/[\s-]/g, "");
+  if (p.startsWith("+")) return /^\+\d{7,15}$/.test(p) ? p : null;
+  if (/^1\d{10}$/.test(p)) return `+86${p}`;
+  return null;
+}
+
+/** 快照机器人各私聊的最新消息 id，作为"新消息"的判定基线。 */
+async function p2pBaseline(appId, appSecret) {
+  const baseline = new Map();
+  for (const c of await listChats(appId, appSecret)) {
+    if (c.chatType !== "p2p") continue;
+    const newest = (await listChatMessages(appId, appSecret, c.chatId))[0];
+    baseline.set(c.chatId, newest ? newest.messageId : null);
+  }
+  return baseline;
+}
+
+/**
+ * 临时接收会话（最长 90 秒）：等用户给机器人发一条私聊消息，抓发送者 open_id。
+ * 零依赖实现：以基线轮询"新私聊出现 / 已有私聊来了新消息"（REST），不用 WS。
+ */
+async function captureOpenIdByDirectMessage(appId, appSecret) {
+  let baseline;
+  try {
+    baseline = await p2pBaseline(appId, appSecret);
+  } catch (err) {
+    console.log(`  无法读取机器人现有会话（${err.message}）。请检查 im:chat 与 im:message.p2p_msg:readonly 权限。`);
+    return null;
+  }
+  console.log("请现在在飞书里给这个机器人发一条任意私聊消息（内容不限）。");
+  process.stdout.write("  等待接收");
+  const deadline = Date.now() + 90_000;
+  try {
+    while (Date.now() < deadline) {
+      await sleep(3_000);
+      process.stdout.write(".");
+      for (const c of await listChats(appId, appSecret)) {
+        if (c.chatType !== "p2p") continue;
+        const isNewChat = !baseline.has(c.chatId);
+        const newest = (await listChatMessages(appId, appSecret, c.chatId))[0];
+        const hasNew = newest && newest.senderOpenId && (isNewChat || newest.messageId !== baseline.get(c.chatId));
+        if (hasNew) {
+          process.stdout.write("\n");
+          return { openId: newest.senderOpenId, from: c.name };
+        }
+      }
+    }
+  } catch (err) {
+    process.stdout.write("\n");
+    console.log(`  接收出错（${err.message}）。`);
+    return null;
+  }
+  process.stdout.write("\n");
+  console.log("  90 秒内没等到消息。换一种方式继续。");
+  return null;
+}
+
 async function askAppTarget(existing) {
   console.log("应用机器人：在 open.feishu.cn 创建企业自建应用，开启机器人能力，");
-  console.log("并开通 im:message:send_as_bot（发消息）、im:chat（列群）、contact:user.id:readonly（手机号查人）权限。");
-  const appId = await ask("appId (cli_...): ");
-  const appSecret = await ask("appSecret: ", { secret: true });
+  console.log("并开通权限：im:message:send_as_bot（发消息）、im:chat（列群）、im:message.p2p_msg:readonly（读单聊消息，发消息抓 open_id 用）、contact:user.id:readonly（手机号/邮箱查 ID）。");
+  const appId = await ask("appId（cli_ 开头）");
+  const appSecret = await ask("appSecret（输入不回显）", { secret: true });
 
   const kind = await askChoice("接收方式：", [
     { label: "私聊某个人（open_id）", value: "open_id" },
     { label: "发到某个群（chat_id）", value: "chat_id" },
   ]);
 
-  let receiveId = existing?.receiveId ?? "";
-  let discovered = false;
-  try {
-    if (kind === "open_id") {
-      const phone = await ask("该用户的手机号（国际格式如 +8613800138000，直接回车跳过自动发现）: ", { optional: true });
-      if (phone) {
-        const openId = await lookupOpenIdByPhone(appId, appSecret, phone);
-        if (openId) {
-          console.log(`  发现 open_id：${openId}`);
-          receiveId = openId;
-          discovered = true;
+  let receiveId = "";
+  if (kind === "open_id") {
+    while (!receiveId) {
+        const method = await askChoice("open_id 获取方式：", [
+          { label: "给机器人发一条消息，自动抓取（推荐）", value: "capture" },
+          { label: "手机号或邮箱查询", value: "lookup" },
+          { label: "手动粘贴 open_id", value: "manual" },
+        ]);
+        if (method === "capture") {
+          const hit = await captureOpenIdByDirectMessage(appId, appSecret);
+          if (hit) {
+            console.log(`  收到 ${hit.from ?? "私聊"} 的消息，open_id：${hit.openId}`);
+            receiveId = hit.openId;
+          }
+        } else if (method === "lookup") {
+          const raw = await ask("该用户的手机号（如 13800138000）或邮箱");
+          const email = raw.includes("@") ? raw : null;
+          const phone = email ? null : normalizePhone(raw);
+          if (!email && !phone) {
+            console.log("  格式不对：手机号支持 13800138000 / +8613800138000，或直接输入邮箱。");
+            continue;
+          }
+          try {
+            const openId = await lookupUserId(appId, appSecret, email ? { email } : { phone });
+            if (openId) {
+              console.log(`  发现 open_id：${openId}`);
+              receiveId = openId;
+            } else {
+              console.log("  未找到（需企业内成员，且应用有 contact:user.id:readonly 权限）。");
+            }
+          } catch (err) {
+            console.log(`  查询失败（${err.message}）。`);
+          }
         } else {
-          console.log("  未找到该手机号对应的用户（需企业通讯录内成员）。");
+          receiveId = await ask("open_id（ou_ 开头）");
         }
       }
     } else {
-      const chats = await listChats(appId, appSecret);
-      if (chats.length) {
-        chats.forEach((c, i) => console.log(`  ${i + 1}) ${c.name}`));
-        const pick = await ask(`选择群（1-${chats.length}，直接回车跳过）: `, { optional: true });
-        const n = Number(pick);
-        if (Number.isInteger(n) && n >= 1 && n <= chats.length) {
-          console.log(`  选择 chat_id：${chats[n - 1].chatId}`);
-          receiveId = chats[n - 1].chatId;
-          discovered = true;
+      let picked = false;
+      try {
+        const chats = (await listChats(appId, appSecret)).filter((c) => c.chatType !== "p2p");
+        if (chats.length) {
+          chats.forEach((c, i) => console.log(`  ${i + 1}) ${c.name}`));
+          const pick = await ask("选择群（输入编号；直接回车跳过）", { optional: true });
+          const n = Number(pick);
+          if (Number.isInteger(n) && n >= 1 && n <= chats.length) {
+            console.log(`  选择 chat_id：${chats[n - 1].chatId}`);
+            receiveId = chats[n - 1].chatId;
+            picked = true;
+          }
+        } else {
+          console.log("  机器人还不在任何群里（先把机器人拉进群，或手动粘贴 chat_id）。");
         }
-      } else {
-        console.log("  机器人还不在任何群里（先把机器人拉进群）。");
+      } catch (err) {
+        console.log(`  列群失败（${err.message}）。`);
       }
+      if (!picked) receiveId = await ask("chat_id（oc_ 开头）");
     }
-  } catch (err) {
-    console.log(`  ID 发现失败（不影响继续）：${err.message}`);
-  }
-  if (!discovered) {
-    receiveId = await ask(`${kind}（可从飞书管理后台或上述发现步骤获取）: `);
-  }
   return { ...existing, type: "app", appId, appSecret, receiveIdType: kind, receiveId };
 }
 
 async function addTarget(config) {
-  const name = await ask("目标名称（如 group / me）: ");
+  const name = await ask("目标名称（如 group / me）");
   if (config.targets[name]) {
     const overwrite = await askChoice(`目标 ${name} 已存在，`, [
       { label: "覆盖编辑", value: "edit" },
