@@ -1,4 +1,5 @@
 ---
+name: planning
 description: "进入原生计划模式并产出待批准实施计划"
 argument-hint: "[可选的目标、任务描述或约束]"
 disable-model-invocation: true
