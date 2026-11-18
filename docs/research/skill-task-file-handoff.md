@@ -25,7 +25,7 @@ files from `HEAD`'s tracked file list.
 | `zellij-pane-agent` | Direct | An initial prompt is supplied, the ready mark is found, and the prompt exceeds 2,000 **bytes** | `Read <file> and execute its complete task.` | System temporary-directory cleanup |
 | `zellij-relay-prompt` | Direct | A staged relay prompt exceeds 2,000 Python string **characters** | `请读取 <file> 并完整执行其中的任务。` | System temporary-directory cleanup |
 | `zellij-dev-loop` | Indirect | Its initial or fix task is sent through either skill above and crosses that skill's threshold | No instruction of its own; it delegates delivery | System temporary-directory cleanup when the delegated long-prompt path is selected |
-| `configure-zellij-pane-agent` | No direct match | N/A | It only collects and displays `ZAP_*` configuration | N/A |
+| `zellij-pane-agent-setup` | No direct match | N/A | It only collects and displays `ZAP_*` configuration | N/A |
 
 ### 1. New pane agent: `zellij-pane-agent`
 
@@ -83,9 +83,9 @@ prompt is long enough. [Initial-task workflow](../../zellij-dev-loop/SKILL.md#L2
 
 ### 4. Skills and documentation without the mechanism
 
-- `configure-zellij-pane-agent` only asks for configuration values and emits a
+- `zellij-pane-agent-setup` only asks for configuration values and emits a
   display-only shell block; it does not create a pane or write a task file.
-  [Source](../../configure-zellij-pane-agent/SKILL.md#L8-L12)
+  [Source](../../zellij-pane-agent-setup/SKILL.md#L8-L12)
 - The zellij I/O references document pane commands only. Neither introduces a
   target-read-and-retain task document.
 - `docs/agents/domain.md` requires agents to read context and ADR files before

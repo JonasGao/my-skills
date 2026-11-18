@@ -1,9 +1,9 @@
 ---
-name: configure-zellij-pane-agent
+name: zellij-pane-agent-setup
 description: Collect and display the environment configuration for a zellij pane agent.
 ---
 
-# Configure Zellij Pane Agent
+# Zellij Pane Agent Setup
 
 Collect a Launch configuration for `zellij-pane-agent`. Ask the user for every
 setting below, then display only the requested `export ZAP_*=...` lines.
